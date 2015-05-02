@@ -11,7 +11,9 @@
 !DS_49a26cf6-0543-4713-bc8d-b39c87738ff1.html
 !DS_4936146c-6e0d-4ba1-99a8-623ea1108d2b.html
 
-
+*.html
+b_files/
+DS/
 ### Python template
 # Byte-compiled / optimized / DLL files
 __pycache__/
