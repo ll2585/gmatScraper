@@ -1,0 +1,123 @@
+!DS_0fd9fe9c-c414-4cfb-a008-b85f2e36ecea.html
+!DS_23c24755-2395-4b89-b2ea-418504e43fb4.html
+!DS_046205af-0240-4bf9-9273-0c786ce16ad6.html
+!DS_1879c396-df0a-49e2-8fe6-f86e079c5fec.html
+!DS_3044fc09-c278-4703-9944-ead7f266d2d0.html
+!DS_58a85acc-8997-43c6-a559-cf0253b44c0c.html
+!DS_49012417-5607-4c18-a00a-52b4eaf70425.html
+!DS_2653e100-d283-4d89-862f-f94d433dd29c.html
+!DS_282989d3-d756-427a-94bc-7c68d9b1648d.html
+!DS_392cc84d-f2f4-492c-aa8f-6ad677b280c7.html
+!DS_49a26cf6-0543-4713-bc8d-b39c87738ff1.html
+!DS_4936146c-6e0d-4ba1-99a8-623ea1108d2b.html
+
+
+### Python template
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*,cover
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+
+### JetBrains template
+# Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm
+
+*.iml
+
+## Directory-based project format:
+.idea/
+# if you remove the above rule, at least ignore the following:
+
+# User-specific stuff:
+# .idea/workspace.xml
+# .idea/tasks.xml
+# .idea/dictionaries
+
+# Sensitive or high-churn files:
+# .idea/dataSources.ids
+# .idea/dataSources.xml
+# .idea/sqlDataSources.xml
+# .idea/dynamic.xml
+# .idea/uiDesigner.xml
+
+# Gradle:
+# .idea/gradle.xml
+# .idea/libraries
+
+# Mongo Explorer plugin:
+# .idea/mongoSettings.xml
+
+## File-based project format:
+*.ipr
+*.iws
+
+## Plugin-specific files:
+
+# IntelliJ
+/out/
+
+# mpeltonen/sbt-idea plugin
+.idea_modules/
+
+# JIRA plugin
+atlassian-ide-plugin.xml
+
+# Crashlytics plugin (for Android Studio and IntelliJ)
+com_crashlytics_export_strings.xml
+crashlytics.properties
+crashlytics-build.properties
+
+
