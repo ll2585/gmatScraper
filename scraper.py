@@ -1,28 +1,33 @@
 import csv
 from bs4 import BeautifulSoup, NavigableString, Tag
-from urllib.request import urlopen, urlretrieve
+from urllib.request import urlopen, urlretrieve, Request
 import threading
 import sqlite3
 import json
 
-import urllib.error
-import sys
-from pprint import pprint
-from PyQt4 import QtGui
 
-dlFromForum = True
+dlFromForum = False
 testFiles = False
+scrape_from_import_io = True
 testOnly =  16
 sql_lock = threading.Lock()
 
 replace_chars = {
 	'â‰¥': '≥',
 	'â‰': '≠',
-	'â€“': '–'
+    'â€“': '–'
 }
+def already_in_sql_database(filename, type):
+	if type == "DS":
+		#filename, question, one, two, answer, tags, post, imagepath
+		conn = sqlite3.connect('db.db')
+		with conn:
+			c = conn.cursor()
+			c.execute("SELECT EXISTS(SELECT 1 FROM DSQuestions WHERE filename= ?)",(filename,))
+			return c.fetchone()[0] != 0
 
-def insertIntoSql(dict, type):
-	if(type == "DS"):
+def insert_into_sql(dict, type):
+	if type == "DS":
 		#filename, question, one, two, answer, tags, post, imagepath
 		conn = sqlite3.connect('db.db')
 		with conn:
@@ -34,7 +39,7 @@ def insertIntoSql(dict, type):
 				c.execute('INSERT INTO DSQuestions("filename", "question", "1", "2", "answer", "tags", "post", "imagepath") VALUES (?,?,?,?,?,?,?,?)',
 			          (dict["filename"], dict["question"], dict["1"], dict["2"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else ""))
 
-def scrapeDS(soup, filename):
+def scrape_data_sufficiency(soup, filename):
 	possible_1 = ["(1)", "1)", "1."]
 	possible_2 = ["(2)", "2)", "2."]
 	result = {}
@@ -42,7 +47,7 @@ def scrapeDS(soup, filename):
 	question="NOT FOUND"
 	one = "NOT FOUND"
 	two = "NOT FOUND"
-	has_attachment = posts.find(text='Attachment:') != None
+	has_attachment = posts.find(text='Attachment:') is not None
 	has_italics = len(posts.find_all("span", {"style": "font-style: italic"})) > 0
 	answer = posts.find("div", {"class": "downRow"}).string.strip()
 
@@ -52,23 +57,23 @@ def scrapeDS(soup, filename):
 	for c in posts.contents:
 		if question == "NOT FOUND":
 			if has_italics:
-				if (type(c) != NavigableString):
-					if(c.name == 'span' and 'style' in c.attrs and c['style'] == 'font-style: italic'):
-						if(not found_italics):
+				if type(c) != NavigableString:
+					if c.name == 'span' and 'style' in c.attrs and c['style'] == 'font-style: italic':
+						if not found_italics:
 							found_italics = True
 						last_c = last_c + c.string
 				elif not found_italics:
 					last_c = c.string
 				else:
 					last_c = last_c + c.string
-			if('?' in str(c)):
-				if (type(c) == NavigableString):
+			if '?' in str(c):
+				if type(c) == NavigableString:
 					to_strip = str(c)
 					if has_italics:
 						to_strip = last_c
-					for c in replace_chars:
-						if(c in to_strip):
-							to_strip = to_strip.replace(c, replace_chars[c])
+					for character in replace_chars:
+						if character in to_strip:
+							to_strip = to_strip.replace(character, replace_chars[character])
 					question = to_strip.replace('\t','').replace('\n','').strip()
 				else:
 					pass
@@ -76,7 +81,7 @@ def scrapeDS(soup, filename):
 			for poss in possible_1:
 				if one == "NOT FOUND":
 					if poss in str(c):
-						if(type(c) == Tag):
+						if type(c) == Tag:
 							for z in c.contents:
 								if one == "NOT FOUND":
 									splitted = str(z).split("<br>")
@@ -89,7 +94,7 @@ def scrapeDS(soup, filename):
 			for poss in possible_2:
 				if two == "NOT FOUND":
 					if poss in str(c):
-						if(type(c) == Tag):
+						if type(c) == Tag:
 							for z in c.contents:
 								if two == "NOT FOUND":
 									splitted = str(z).split("<br>")
@@ -99,19 +104,20 @@ def scrapeDS(soup, filename):
 						else:
 							two = c.string.replace(poss, '').strip()
 	result["image"] = False
-	if(has_attachment):
+	if has_attachment:
 		src = posts.find("div", { "class" : "attachcontent" })
 		#grab attachment
 		import os.path
 		img_name = "{0}-IMG-1.jpg".format(filename.split(".html")[0])
-		if("\DS" not in img_name):
+		if "\DS" not in img_name:
 			image_path = os.path.join("DS", img_name)
 		else:
 			image_path = img_name
 		if not (os.path.isfile(image_path)):
 			print(filename)
 			web_image_path = 'http://gmatclub.com/forum{0}'.format(src.find("img")["src"][1:])
-			urlretrieve(web_image_path, image_path)
+			req = Request(web_image_path, headers={'User-Agent': 'Mozilla/5.0'})
+			urlretrieve(req, image_path)
 		result["image"] = True
 		result["imagepath"] = image_path
 	#print("{0}: {1}".format(filename,question))
@@ -129,8 +135,16 @@ def scrapeDS(soup, filename):
 
 	return result
 
-def scrapeFile(filename, type):
+def scrape_file(filename, type):
 	if ".html" not in filename:
+		return
+	already_in_db = False
+	sql_lock.acquire()
+	try:
+		already_in_db = already_in_sql_database(filename, type)
+	finally:
+		sql_lock.release()
+	if already_in_db:
 		return
 	import os.path
 	with open ( os.path.join(type, filename), "r" , encoding="utf-8") as myfile:
@@ -140,31 +154,30 @@ def scrapeFile(filename, type):
 			print("{0} fucked up decoding".format(filename))
 			return
 	soup = BeautifulSoup(page)
-	if(type == "DS"):
-		test = scrapeDS(soup, filename)
+	if type == "DS":
+		data_sufficiency_questions = scrape_data_sufficiency(soup, filename)
 		sql_lock.acquire()
 		try:
-			insertIntoSql(test, type)
+			insert_into_sql(data_sufficiency_questions, type)
 		finally:
 			sql_lock.release()
-		print("{0}: {1}".format(filename,test['question']))
-		print("{0}: {1}".format(filename,test['1']))
-		print("{0}: {1}".format(filename,test['2']))
-		print("{0}: {1}".format(filename,test['answer']))
+		print("{0}: {1}".format(filename,data_sufficiency_questions['question']))
+		print("{0}: {1}".format(filename,data_sufficiency_questions['1']))
+		print("{0}: {1}".format(filename,data_sufficiency_questions['2']))
+		print("{0}: {1}".format(filename,data_sufficiency_questions['answer']))
 
-def scrapeDLedPosts(type):
+def scrape_downloaded_posts(type):
 	from os import listdir
-	threads = []
 	files = listdir(type)
 	threads = []
 	for t in files:
-		threads.append(threading.Thread(target=scrapeFile, args = (t,type)))
+		threads.append(threading.Thread(target=scrape_file, args = (t,type)))
 	for t in threads:
 		t.start()
 	for t in threads:
 		t.join()
 
-def scrapeForumPost(type, filepath = None):
+def scrape_forum_post(type, filepath = None):
 	#print ("Reading page {0}".format(link))
 	file = link
 	import os
@@ -180,10 +193,10 @@ def scrapeForumPost(type, filepath = None):
 	else:
 		print("OOPS")
 	soup = BeautifulSoup(page)
-	if(type == "DS"):
-		return scrapeDS(soup, file)
+	if type == "DS":
+		return scrape_data_sufficiency(soup, file)
 
-def insertIntoSqlDLedLink(link, fullfilename):
+def insert_into_sql_downloaded_link(link, full_filename):
 	#filename, question, one, two, answer, tags, post, imagepath
 	conn = sqlite3.connect('db.db')
 	with conn:
@@ -194,84 +207,135 @@ def insertIntoSqlDLedLink(link, fullfilename):
 			print("Found in!")
 		else:
 			c.execute('INSERT INTO LinksDLed("link", "filename") VALUES (?,?)',
-		          (str(link), fullfilename))
-			urlretrieve(link, fullfilename)
+		          (str(link), full_filename))
+			req = Request(link, headers={'User-Agent': 'Mozilla/5.0'})
+			import time
+			time.sleep(1) #prevent bot capture?
+			urlretrieve(req, full_filename)
 
-def downloadForumPost(link, type):
+def download_forum_post(link, type):
 	#print ("Downloading page {0}".format(link))
 	import uuid
 	import os.path
 	filename_to_save = "{0}_{1}.html".format(type,uuid.uuid4())
 	while os.path.isfile(filename_to_save):
 		filename_to_save = "{0}_{1}.html".format(type,uuid.uuid4())
-	fullfilename = os.path.join(type, filename_to_save)
+	full_filename = os.path.join(type, filename_to_save)
 	sql_lock.acquire()
 	try:
-		insertIntoSqlDLedLink(link, fullfilename)
+		insert_into_sql_downloaded_link(link, full_filename)
 	finally:
 		sql_lock.release()
 
 
-def scrapeForumIndex(link):
+def scrape_forum_index(link):
 	print ("Reading page...")
-	page = urlopen(link)
+	req = Request(link, headers={'User-Agent': 'Mozilla/5.0'})
+	page = urlopen(req).read()
 	soup = BeautifulSoup(page)
 	titles = soup.find_all("span", "topicTitle")
 	threads = []
 	for t in titles:
 		new_link = t.parent["href"]
-		threads.append(threading.Thread(target=downloadForumPost, args = (new_link,"DS")))
+		threads.append(threading.Thread(target=download_forum_post, args = (new_link,"DS")))
 	for t in threads:
 		t.start()
 	for t in threads:
 		t.join()
 	print ("done downloading!!")
 
+def parse_data_sufficiency_io_posts(dict):
+	quesitons = []
+	for post in dict:
+		result = {}
+		this_url = post['pageUrl']
+		'''
+		result["image"] = False
+		if has_attachment:
+			src = posts.find("div", { "class" : "attachcontent" })
+			#grab attachment
+			import os.path
+			img_name = "{0}-IMG-1.jpg".format(filename.split(".html")[0])
+			if "\DS" not in img_name:
+				image_path = os.path.join("DS", img_name)
+			else:
+				image_path = img_name
+			if not (os.path.isfile(image_path)):
+				print(filename)
+				web_image_path = 'http://gmatclub.com/forum{0}'.format(src.find("img")["src"][1:])
+				req = Request(web_image_path, headers={'User-Agent': 'Mozilla/5.0'})
+				urlretrieve(req, image_path)
+			result["image"] = True
+			result["imagepath"] = image_path
+		#print("{0}: {1}".format(filename,question))
+		text = posts.getText()
 
-def makeCSV(filename):
-	with open(filename, 'rb') as html:
-		soup = BeautifulSoup(html)
-
-	rs = soup.find_all("tr", "headline")
-	articles = []
-	count = 1
-	for a in rs:
-		headline = {}
-		headline['Title'] = a.a.get_text().strip()
-		titletimedate = a.find("div", "leadFields").get_text()
-		
-		titletimedate = parseTitleTimeDate(titletimedate.split(","))
-
-		headline['EventDate'] = titletimedate[2]
-		headline['EventTime'] = titletimedate[1]
-		headline['Citation'] = titletimedate[0]
-		articleText = a.find("div", "snippet ensnippet")
-		if(articleText):
-			headline['ArticleText'] = articleText.get_text().strip()
+		tags = soup.find("div", {"id": "taglist"})
+		result['tags'] = tags.getText().split("\xa0 \xa0")
+		result['post'] = text
+		result['question'] = question
+		result['1'] = one
+		result['2'] = two
+		result['answer'] = answer
+		result['filename'] = filename
+		'''
+		if post['answeroption_value_1'] == '':
+			continue
 		else:
-			headline['ArticleText'] = ""
-		count += 1
+			post_content = post['itemtext_content']
+			if post_content.find("?") == -1:
+				print(post_content)
+			else:
+				possible_ones = ["(1)"]
+				possible_twos = ["(2)"]
+				answer_start = "[Reveal]"
+				question = post_content[:post_content.find("?")+1]
+				result['question'] = question
+				result['url'] = post['pageUrl']
+				result['1'] = None
+				for one in possible_ones:
+					if result['1'] is not None:
+						break
+					if one in post_content:
+						one_start = post_content.find(one) + len(one)
+						for two in possible_twos:
+							if result['1'] is not None:
+								break
+							if two in post_content:
+								one_end = post_content.find(two)
+								result['1'] = post_content[one_start:one_end].strip()
+								two_start = post_content.find(two) + len(two)
+								two_end = post_content.find(answer_start)
+								result['2'] = post_content[two_start:two_end].strip()
+								print(result['2'])
 
-		articles.append(headline)
+def scrape_import_io_posts(file, type):
+	dict = []
+	with open(file, encoding="utf-8") as csvfile:
+		reader = csv.DictReader(csvfile)
+		for row in reader:
+			dict.append(row)
 
-	headers = ['EventDate', 'EventTime', 'Title', 'Citation', 'ArticleText']
-	import os
-	noext = os.path.splitext(filename)[0]
-	newfile = noext + ('.csv')
-	with open(newfile, 'w', encoding = 'utf-8') as f:
-		csvwriter = csv.DictWriter(f, headers, lineterminator='\n')
-		csvwriter.writeheader()
-		csvwriter.writerows(articles)
+	if type == "DS":
+		parse_data_sufficiency_io_posts(dict)
 
 if __name__ == '__main__':
-	for i in range(950,0,-50):
-		link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=180&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
+	skip = False
+	#urlretrieve('https://magic.import.io/?site=http:%2F%2Fgmatclub.com%2Fforum%2Fviewtopic.php%3Ff%3D141%26t%3D106989%26view%3Dunread%26sid%3Dc9cdbc10207344ece642ae0c5bb6a189%23unread', 'blah.html')
+	if not skip:
 		if dlFromForum:
-			scrapeForumIndex(link)
+			for i in range(950,0,-50):
+				link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=180&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
+				scrape_forum_index(link)
+				import time
+				time.sleep(2)
+		elif scrape_from_import_io:
+			import_io_file = 'import_io_ds_cleaned.csv'
+			scrape_import_io_posts(import_io_file, "DS")
 		else:
 			if testFiles:
-				if testOnly != None:
-					test = scrapeForumPost("DS", filepath = "bs{0}.html".format(testOnly))
+				if testOnly is not None:
+					test = scrape_forum_post("DS", filepath = "bs{0}.html".format(testOnly))
 					print("{0}: {1}".format(testOnly,test['question']))
 					print("{0}: {1}".format(testOnly,test['1']))
 					print("{0}: {1}".format(testOnly,test['2']))
@@ -281,10 +345,10 @@ if __name__ == '__main__':
 					files = listdir('.')
 					for f in files:
 						if "bs" in f:
-							test= scrapeForumPost("DS", filepath = f)
+							test= scrape_forum_post("DS", filepath = f)
 							print("{0}: {1}".format(f,test['question']))
 							print("{0}: {1}".format(f,test['1']))
 							print("{0}: {1}".format(f,test['2']))
 							print("{0}: {1}".format(f,test['answer']))
 			else:
-				scrapeDLedPosts("DS")
+				scrape_downloaded_posts("DS")
