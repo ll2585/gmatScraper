@@ -6,12 +6,12 @@ import sqlite3
 import json
 import requests
 from pprint import pprint
-
+import re
 
 dlFromForum = False
-testFiles = False
+testFiles = True
 scrape_from_import_io = False
-testOnly =  2
+testOnly =  18
 sql_lock = threading.Lock()
 questions_lock = threading.Lock()
 questions_to_insert = {
@@ -26,6 +26,12 @@ questions_already_in_db = {
     "SC": [],
     "RC": []
 }
+
+questions_to_update = []
+
+ones_already_in_db = []
+
+twos_already_in_db = []
 
 replace_chars = {
 	'â‰¥': '≥',
@@ -49,9 +55,20 @@ def insert_questions_into_sql():
 		for type in questions_to_insert:
 			if len(type) > 0:
 				if type == "DS":
-					to_tuple = [(dict["filename"], dict["question"], dict["1"], dict["2"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else "") for dict in questions_to_insert[type]]
-					c.executemany('INSERT INTO DSQuestions("filename", "question", "1", "2", "answer", "tags", "post", "imagepath") VALUES (?,?,?,?,?,?,?,?)', to_tuple)
+					to_tuple = [(dict["filename"], dict["question"], dict["1"], dict["2"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else "", dict['difficulty_percentage'], dict['question_percentage'],dict['sessions']) for dict in questions_to_insert[type]]
+					c.executemany('INSERT INTO DSQuestions("filename", "question", "1", "2", "answer", "tags", "post", "imagepath", "difficulty_percentage", "question_percentage", "sessions") VALUES (?,?,?,?,?,?,?,?)', to_tuple)
 	print(questions_to_insert)
+
+def update_difficulties():
+	conn = sqlite3.connect('db.db')
+	with conn:
+		c = conn.cursor()
+		for type in questions_to_update:
+			if len(type) > 0:
+				if type == "DS":
+					to_tuple = [(d["difficulty_percentage"], d["question_percentage"], d["sessions"]) for d in questions_to_update]
+					c.executemany('UPDATE DSQuestions SET difficulty_percentage = ?, question_percentage = ?, sessions = ? WHERE filename = ?', to_tuple)
+	print(questions_to_update)
 
 def insert_into_sql(dict, type):
 	if type == "DS":
@@ -70,6 +87,12 @@ def scrape_data_sufficiency(soup, filename):
 	possible_1 = ["(1)", "1)", "1.", "i.", "I.", "a)", "Statement #1"]
 	possible_2 = ["(2)", "2)", "2.", "ii.", "II.", "b)", "Statement #2"]
 	result = {}
+	difficulty = soup.find("div", {"class": "difficulty"})
+	difficulty_percentage = difficulty.find("b").text
+	question_stats = soup.find("div", {"class": "question"})
+	bolded = question_stats.find_all("b")
+	question_percentage = bolded[0].text
+	sessions = bolded[2].text
 	posts = soup.find("div", { "class" : "item text" }) #find returns the first 1 and the Q is the first post
 	question="NOT FOUND"
 	one = "NOT FOUND"
@@ -123,7 +146,10 @@ def scrape_data_sufficiency(soup, filename):
 						if type(c) == Tag:
 							for z in c.contents:
 								if one == "NOT FOUND":
-									splitted = str(z).split("<br>")
+									#print(re.split(r"(<br>|\t)", str(z)))
+									#print('end reg')
+									#splitted = str(z).split("<br>")
+									splitted = re.split(r"(<br>|\t)", str(z))
 									for strng in splitted:
 										if poss in strng and  one == "NOT FOUND":
 											one = strng.replace(poss, '').strip()
@@ -137,6 +163,7 @@ def scrape_data_sufficiency(soup, filename):
 							for z in c.contents:
 								if two == "NOT FOUND":
 									splitted = str(z).split("<br>")
+									splitted = re.split(r"(<br>|\t)", str(z))
 									for strng in splitted:
 										if poss in strng and  two == "NOT FOUND":
 											two = strng.replace(poss, '').strip()
@@ -153,7 +180,6 @@ def scrape_data_sufficiency(soup, filename):
 		else:
 			image_path = img_name
 		if not (os.path.isfile(image_path)):
-			print(filename)
 			web_image_path = 'http://gmatclub.com/forum{0}'.format(src.find("img")["src"][1:])
 			req = Request(web_image_path, headers={'User-Agent': 'Mozilla/5.0'})
 			urlretrieve(web_image_path, image_path)
@@ -173,7 +199,9 @@ def scrape_data_sufficiency(soup, filename):
 	if question == "NOT FOUND" or one == "NOT FOUND" or two == "NOT FOUND":
 		print("CHECK THIS SHIT: {0}".format(filename))
 	#pprint(result['question'])
-
+	result['difficulty_percentage'] = difficulty_percentage
+	result['question_percentage'] = question_percentage
+	result['sessions'] = sessions
 	return result
 
 def scrape_file(filename, type):
@@ -202,11 +230,18 @@ def scrape_file(filename, type):
 			questions_lock.acquire()
 			try:
 				other_questions = [d['question'] for d in questions_to_insert[type]]
+				other_ones= [d['1'] for d in questions_to_insert[type]]
+				other_twos= [d['2'] for d in questions_to_insert[type]]
 				this_question = data_sufficiency_questions['question']
-				if this_question not in questions_already_in_db and this_question not in other_questions and this_question != "NOT FOUND":
+				this_one = data_sufficiency_questions['1']
+				this_two = data_sufficiency_questions['2']
+				if (this_question not in questions_already_in_db and this_question not in other_questions and this_question != "NOT FOUND" and
+					this_one not in ones_already_in_db and this_one not in other_ones and this_one != "NOT FOUND" and
+					this_two not in twos_already_in_db and this_two not in other_twos and this_two != "NOT FOUND"):
 					questions_to_insert[type].append(data_sufficiency_questions)
 				else:
-					print('question {0} is already in the db!'.format(this_question))
+					pass
+					#print('question {0} is already in the db!'.format(this_question))
 			finally:
 				questions_lock.release()
 		''' actually put it in memory...faster
@@ -239,6 +274,13 @@ def get_questions_in_db(type):
 			c.execute("SELECT question FROM DSQuestions")
 			return c.fetchall()
 
+def get_ones_twos_in_ds():
+	conn = sqlite3.connect('db.db')
+	with conn:
+		c = conn.cursor()
+		c.execute("SELECT `1`, `2` FROM DSQuestions")
+		return c.fetchall()
+
 def scrape_array_of_files(tuples):
 	for t in tuples:
 		scrape_file(t[0], t[1])
@@ -250,6 +292,10 @@ def scrape_downloaded_posts(type):
 	files_in_sql = get_files_in_db(type)
 	questions_in_sql_type = get_questions_in_db(type)
 	questions_already_in_db[type] = [question[0] for question in questions_in_sql_type]
+	if type == "DS":
+		one_twos_in_db = get_ones_twos_in_ds()
+		ones_already_in_db = [question[0] for question in one_twos_in_db]
+		twos_already_in_db = [question[1] for question in one_twos_in_db]
 	as_array = [filename[0] for filename in files_in_sql]
 	thread_limit = 10
 	for_each_thread = []
@@ -267,6 +313,7 @@ def scrape_downloaded_posts(type):
 			inserted += 1
 			if cur_thread == thread_limit: cur_thread = 0
 	print('starting threads')
+
 	for thread in for_each_thread:
 		threads.append(threading.Thread(target=scrape_array_of_files, args = (thread,)))
 
@@ -300,7 +347,6 @@ def insert_into_sql_downloaded_link(link, full_filename):
 	conn = sqlite3.connect('db.db')
 	with conn:
 		c = conn.cursor()
-		print(link)
 		c.execute("SELECT EXISTS(SELECT 1 FROM LinksDLed WHERE link = ?)",(str(link),))
 		if c.fetchone()[0] != 0:
 			print("Found in!")
@@ -309,8 +355,8 @@ def insert_into_sql_downloaded_link(link, full_filename):
 		          (str(link), full_filename))
 			req = Request(link, headers={'User-Agent': 'Mozilla/5.0'})
 			import time
-			print('waiting one second')
-			time.sleep(1) #prevent bot capture?
+			print('waiting two seconds..')
+			time.sleep(2) #prevent bot capture?
 			print('getting {0}'.format(link))
 			urlretrieve(link, full_filename)
 
@@ -426,15 +472,16 @@ if __name__ == '__main__':
 	skip = False
 	from requests import get
 	print("getting ip")
-	ip = get('http://api.ipify.org').text
-	print ('My public IP address is:', ip)
+	#ip = get('http://api.ipify.org').text
+	#print ('My public ip address is:', ip)
 	files = get_files_in_db("DS")
 	as_array = [filename[0] for filename in files]
 	print(as_array)
 	#urlretrieve('https://magic.import.io/?site=http:%2F%2Fgmatclub.com%2Fforum%2Fviewtopic.php%3Ff%3D141%26t%3D106989%26view%3Dunread%26sid%3Dc9cdbc10207344ece642ae0c5bb6a189%23unread', 'blah.html')
 	if not skip:
 		if dlFromForum:
-			for i in range(900,0,-50):
+			#for since 2006: for i in range(2500,2400,-50):
+			for i in range(1050,1000,-50):
 				link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=180&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
 				scrape_forum_index(link)
 				import time
@@ -451,6 +498,7 @@ if __name__ == '__main__':
 					print("{0}: {1}".format(testOnly,test['1']))
 					print("{0}: {1}".format(testOnly,test['2']))
 					print("{0}: {1}".format(testOnly,test['answer']))
+					print("{0}: {1}".format(testOnly,json.dumps(test["tags"])))
 				else:
 					from os import listdir
 					files = listdir('.')
@@ -462,4 +510,5 @@ if __name__ == '__main__':
 							print("{0}: {1}".format(f,test['2']))
 							print("{0}: {1}".format(f,test['answer']))
 			else:
+				print('scraping dl')
 				scrape_downloaded_posts("DS")
