@@ -11,7 +11,7 @@ from pprint import pprint
 dlFromForum = False
 testFiles = False
 scrape_from_import_io = False
-testOnly =  16
+testOnly =  2
 sql_lock = threading.Lock()
 questions_lock = threading.Lock()
 questions_to_insert = {
@@ -67,8 +67,8 @@ def insert_into_sql(dict, type):
 			          (dict["filename"], dict["question"], dict["1"], dict["2"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else ""))
 
 def scrape_data_sufficiency(soup, filename):
-	possible_1 = ["(1)", "1)", "1."]
-	possible_2 = ["(2)", "2)", "2."]
+	possible_1 = ["(1)", "1)", "1.", "i.", "I.", "a)", "Statement #1"]
+	possible_2 = ["(2)", "2)", "2.", "ii.", "II.", "b)", "Statement #2"]
 	result = {}
 	posts = soup.find("div", { "class" : "item text" }) #find returns the first 1 and the Q is the first post
 	question="NOT FOUND"
@@ -76,8 +76,11 @@ def scrape_data_sufficiency(soup, filename):
 	two = "NOT FOUND"
 	has_attachment = posts.find(text='Attachment:') is not None
 	has_italics = len(posts.find_all("span", {"style": "font-style: italic"})) > 0
-	answer = posts.find("div", {"class": "downRow"}).string.strip()
-
+	try:
+		answer = posts.find("div", {"class": "downRow"}).string.strip()
+	except AttributeError:
+		print("CHECK THIS SHIT FOR ATTRIBUTE ERROR NO ATTRIBUTE: {0}".format(filename))
+		return
 	if has_italics:
 		found_italics = False
 		last_c = ''
@@ -102,7 +105,16 @@ def scrape_data_sufficiency(soup, filename):
 						if character in to_strip:
 							to_strip = to_strip.replace(character, replace_chars[character])
 					question = to_strip.replace('\t','').replace('\n','').strip()
+				elif type(c) == Tag:
+					for inner_contents in c.contents:
+						if '?' in str(inner_contents):
+							to_strip = str(inner_contents)
+							for character in replace_chars:
+								if character in to_strip:
+									to_strip = to_strip.replace(character, replace_chars[character])
+							question = to_strip.replace('\t','').replace('\n','').strip()
 				else:
+					print(type(c))
 					pass
 		if question != "NOT FOUND" and one == "NOT FOUND":
 			for poss in possible_1:
@@ -158,6 +170,8 @@ def scrape_data_sufficiency(soup, filename):
 	result['2'] = two
 	result['answer'] = answer
 	result['filename'] = filename
+	if question == "NOT FOUND" or one == "NOT FOUND" or two == "NOT FOUND":
+		print("CHECK THIS SHIT: {0}".format(filename))
 	#pprint(result['question'])
 
 	return result
@@ -184,11 +198,17 @@ def scrape_file(filename, type):
 	soup = BeautifulSoup(page)
 	if type == "DS":
 		data_sufficiency_questions = scrape_data_sufficiency(soup, filename)
-		questions_lock.acquire()
-		try:
-			questions_to_insert[type].append(data_sufficiency_questions)
-		finally:
-			questions_lock.release()
+		if data_sufficiency_questions is not None:
+			questions_lock.acquire()
+			try:
+				other_questions = [d['question'] for d in questions_to_insert[type]]
+				this_question = data_sufficiency_questions['question']
+				if this_question not in questions_already_in_db and this_question not in other_questions and this_question != "NOT FOUND":
+					questions_to_insert[type].append(data_sufficiency_questions)
+				else:
+					print('question {0} is already in the db!'.format(this_question))
+			finally:
+				questions_lock.release()
 		''' actually put it in memory...faster
 		sql_lock.acquire()
 		try:
@@ -210,6 +230,15 @@ def get_files_in_db(type):
 			c.execute("SELECT filename FROM DSQuestions")
 			return c.fetchall()
 
+def get_questions_in_db(type):
+	if type == "DS":
+		#filename, question, one, two, answer, tags, post, imagepath
+		conn = sqlite3.connect('db.db')
+		with conn:
+			c = conn.cursor()
+			c.execute("SELECT question FROM DSQuestions")
+			return c.fetchall()
+
 def scrape_array_of_files(tuples):
 	for t in tuples:
 		scrape_file(t[0], t[1])
@@ -219,12 +248,14 @@ def scrape_downloaded_posts(type):
 	files = listdir(type)
 	threads = []
 	files_in_sql = get_files_in_db(type)
+	questions_in_sql_type = get_questions_in_db(type)
+	questions_already_in_db[type] = [question[0] for question in questions_in_sql_type]
 	as_array = [filename[0] for filename in files_in_sql]
 	thread_limit = 10
 	for_each_thread = []
 	for i in range(thread_limit):
 		for_each_thread.append([])
-	test_limit = 100
+	test_limit = 300
 	inserted = 0
 	cur_thread = 0
 	for t in files:
@@ -247,7 +278,7 @@ def scrape_downloaded_posts(type):
 
 def scrape_forum_post(type, filepath = None):
 	#print ("Reading page {0}".format(link))
-	file = link
+	file = filepath
 	import os
 	if filepath:
 		file = filepath
