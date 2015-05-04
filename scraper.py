@@ -312,6 +312,9 @@ def scrape_downloaded_posts(type):
 			cur_thread += 1
 			inserted += 1
 			if cur_thread == thread_limit: cur_thread = 0
+		if t in as_array:
+			pass
+			#update with difficult
 	print('starting threads')
 
 	for thread in for_each_thread:
