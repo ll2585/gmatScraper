@@ -4,19 +4,35 @@ from urllib.request import urlopen, urlretrieve, Request
 import threading
 import sqlite3
 import json
+import requests
+from pprint import pprint
 
 
 dlFromForum = False
 testFiles = False
-scrape_from_import_io = True
+scrape_from_import_io = False
 testOnly =  16
 sql_lock = threading.Lock()
+questions_lock = threading.Lock()
+questions_to_insert = {
+	"DS": [],
+    "PS": [],
+    "SC": [],
+    "RC": []
+}
+questions_already_in_db = {
+	"DS": [],
+    "PS": [],
+    "SC": [],
+    "RC": []
+}
 
 replace_chars = {
 	'â‰¥': '≥',
 	'â‰': '≠',
     'â€“': '–'
 }
+''' TODO: Delete if confirm that is unneeded
 def already_in_sql_database(filename, type):
 	if type == "DS":
 		#filename, question, one, two, answer, tags, post, imagepath
@@ -25,6 +41,17 @@ def already_in_sql_database(filename, type):
 			c = conn.cursor()
 			c.execute("SELECT EXISTS(SELECT 1 FROM DSQuestions WHERE filename= ?)",(filename,))
 			return c.fetchone()[0] != 0
+'''
+def insert_questions_into_sql():
+	conn = sqlite3.connect('db.db')
+	with conn:
+		c = conn.cursor()
+		for type in questions_to_insert:
+			if len(type) > 0:
+				if type == "DS":
+					to_tuple = [(dict["filename"], dict["question"], dict["1"], dict["2"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else "") for dict in questions_to_insert[type]]
+					c.executemany('INSERT INTO DSQuestions("filename", "question", "1", "2", "answer", "tags", "post", "imagepath") VALUES (?,?,?,?,?,?,?,?)', to_tuple)
+	print(questions_to_insert)
 
 def insert_into_sql(dict, type):
 	if type == "DS":
@@ -117,7 +144,7 @@ def scrape_data_sufficiency(soup, filename):
 			print(filename)
 			web_image_path = 'http://gmatclub.com/forum{0}'.format(src.find("img")["src"][1:])
 			req = Request(web_image_path, headers={'User-Agent': 'Mozilla/5.0'})
-			urlretrieve(req, image_path)
+			urlretrieve(web_image_path, image_path)
 		result["image"] = True
 		result["imagepath"] = image_path
 	#print("{0}: {1}".format(filename,question))
@@ -136,8 +163,8 @@ def scrape_data_sufficiency(soup, filename):
 	return result
 
 def scrape_file(filename, type):
-	if ".html" not in filename:
-		return
+	assert ".html" in filename
+	'''TODO: delete if confirmed unneeded
 	already_in_db = False
 	sql_lock.acquire()
 	try:
@@ -146,6 +173,7 @@ def scrape_file(filename, type):
 		sql_lock.release()
 	if already_in_db:
 		return
+	'''
 	import os.path
 	with open ( os.path.join(type, filename), "r" , encoding="utf-8") as myfile:
 		try:
@@ -156,6 +184,12 @@ def scrape_file(filename, type):
 	soup = BeautifulSoup(page)
 	if type == "DS":
 		data_sufficiency_questions = scrape_data_sufficiency(soup, filename)
+		questions_lock.acquire()
+		try:
+			questions_to_insert[type].append(data_sufficiency_questions)
+		finally:
+			questions_lock.release()
+		''' actually put it in memory...faster
 		sql_lock.acquire()
 		try:
 			insert_into_sql(data_sufficiency_questions, type)
@@ -165,17 +199,51 @@ def scrape_file(filename, type):
 		print("{0}: {1}".format(filename,data_sufficiency_questions['1']))
 		print("{0}: {1}".format(filename,data_sufficiency_questions['2']))
 		print("{0}: {1}".format(filename,data_sufficiency_questions['answer']))
+		'''
+
+def get_files_in_db(type):
+	if type == "DS":
+		#filename, question, one, two, answer, tags, post, imagepath
+		conn = sqlite3.connect('db.db')
+		with conn:
+			c = conn.cursor()
+			c.execute("SELECT filename FROM DSQuestions")
+			return c.fetchall()
+
+def scrape_array_of_files(tuples):
+	for t in tuples:
+		scrape_file(t[0], t[1])
 
 def scrape_downloaded_posts(type):
 	from os import listdir
 	files = listdir(type)
 	threads = []
+	files_in_sql = get_files_in_db(type)
+	as_array = [filename[0] for filename in files_in_sql]
+	thread_limit = 10
+	for_each_thread = []
+	for i in range(thread_limit):
+		for_each_thread.append([])
+	test_limit = 100
+	inserted = 0
+	cur_thread = 0
 	for t in files:
-		threads.append(threading.Thread(target=scrape_file, args = (t,type)))
+		if inserted == test_limit:
+			break
+		if t not in as_array and '.html' in t:
+			for_each_thread[cur_thread].append((t,type))
+			cur_thread += 1
+			inserted += 1
+			if cur_thread == thread_limit: cur_thread = 0
+	print('starting threads')
+	for thread in for_each_thread:
+		threads.append(threading.Thread(target=scrape_array_of_files, args = (thread,)))
+
 	for t in threads:
 		t.start()
 	for t in threads:
 		t.join()
+	insert_questions_into_sql()
 
 def scrape_forum_post(type, filepath = None):
 	#print ("Reading page {0}".format(link))
@@ -210,8 +278,10 @@ def insert_into_sql_downloaded_link(link, full_filename):
 		          (str(link), full_filename))
 			req = Request(link, headers={'User-Agent': 'Mozilla/5.0'})
 			import time
+			print('waiting one second')
 			time.sleep(1) #prevent bot capture?
-			urlretrieve(req, full_filename)
+			print('getting {0}'.format(link))
+			urlretrieve(link, full_filename)
 
 def download_forum_post(link, type):
 	#print ("Downloading page {0}".format(link))
@@ -221,7 +291,7 @@ def download_forum_post(link, type):
 	while os.path.isfile(filename_to_save):
 		filename_to_save = "{0}_{1}.html".format(type,uuid.uuid4())
 	full_filename = os.path.join(type, filename_to_save)
-	sql_lock.acquire()
+	sql_lock.acquire() #this has to be done each time in case it stops working
 	try:
 		insert_into_sql_downloaded_link(link, full_filename)
 	finally:
@@ -231,17 +301,19 @@ def download_forum_post(link, type):
 def scrape_forum_index(link):
 	print ("Reading page...")
 	req = Request(link, headers={'User-Agent': 'Mozilla/5.0'})
+
 	page = urlopen(req).read()
+	#requests_result = requests.get(link)
+
 	soup = BeautifulSoup(page)
+
 	titles = soup.find_all("span", "topicTitle")
 	threads = []
+	#dont thread it lol because it banned last time...
 	for t in titles:
 		new_link = t.parent["href"]
-		threads.append(threading.Thread(target=download_forum_post, args = (new_link,"DS")))
-	for t in threads:
-		t.start()
-	for t in threads:
-		t.join()
+		download_forum_post(new_link,"DS")
+
 	print ("done downloading!!")
 
 def parse_data_sufficiency_io_posts(dict):
@@ -321,13 +393,21 @@ def scrape_import_io_posts(file, type):
 
 if __name__ == '__main__':
 	skip = False
+	from requests import get
+	print("getting ip")
+	ip = get('http://api.ipify.org').text
+	print ('My public IP address is:', ip)
+	files = get_files_in_db("DS")
+	as_array = [filename[0] for filename in files]
+	print(as_array)
 	#urlretrieve('https://magic.import.io/?site=http:%2F%2Fgmatclub.com%2Fforum%2Fviewtopic.php%3Ff%3D141%26t%3D106989%26view%3Dunread%26sid%3Dc9cdbc10207344ece642ae0c5bb6a189%23unread', 'blah.html')
 	if not skip:
 		if dlFromForum:
-			for i in range(950,0,-50):
+			for i in range(900,0,-50):
 				link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=180&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
 				scrape_forum_index(link)
 				import time
+				print('waiting two seconds')
 				time.sleep(2)
 		elif scrape_from_import_io:
 			import_io_file = 'import_io_ds_cleaned.csv'
