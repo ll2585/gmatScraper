@@ -9,9 +9,9 @@ from pprint import pprint
 import re
 
 dlFromForum = False
-testFiles = True
+testFiles = False
 scrape_from_import_io = False
-testOnly =  18
+testOnly =  3
 sql_lock = threading.Lock()
 questions_lock = threading.Lock()
 questions_to_insert = {
@@ -56,7 +56,7 @@ def insert_questions_into_sql():
 			if len(type) > 0:
 				if type == "DS":
 					to_tuple = [(dict["filename"], dict["question"], dict["1"], dict["2"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else "", dict['difficulty_percentage'], dict['question_percentage'],dict['sessions']) for dict in questions_to_insert[type]]
-					c.executemany('INSERT INTO DSQuestions("filename", "question", "1", "2", "answer", "tags", "post", "imagepath", "difficulty_percentage", "question_percentage", "sessions") VALUES (?,?,?,?,?,?,?,?)', to_tuple)
+					c.executemany('INSERT INTO DSQuestions("filename", "question", "1", "2", "answer", "tags", "post", "imagepath", "difficulty_percentage", "question_percentage", "sessions") VALUES (?,?,?,?,?,?,?,?,?,?,?)', to_tuple)
 	print(questions_to_insert)
 
 def update_difficulties():
@@ -87,12 +87,27 @@ def scrape_data_sufficiency(soup, filename):
 	possible_1 = ["(1)", "1)", "1.", "i.", "I.", "a)", "Statement #1"]
 	possible_2 = ["(2)", "2)", "2.", "ii.", "II.", "b)", "Statement #2"]
 	result = {}
+
 	difficulty = soup.find("div", {"class": "difficulty"})
-	difficulty_percentage = difficulty.find("b").text
+	if difficulty is not None and difficulty.find("b") is not None:
+		difficulty_percentage = difficulty.find("b").text
+	else:
+		print("CHECK THIS SHIT OUT NO DIFFICULTYT: {0}".format(filename))
+		if difficulty.find("div").contents[0].strip() == "(N/A)":
+			difficulty_percentage = "N/A"
+		else:
+			difficulty_percentage = None
+			print("CHECK THIS SHIT OUT NO DIFFICULTYT: {0}".format(filename))
+
 	question_stats = soup.find("div", {"class": "question"})
 	bolded = question_stats.find_all("b")
-	question_percentage = bolded[0].text
-	sessions = bolded[2].text
+	if bolded is not None:
+		question_percentage = bolded[0].text
+		sessions = bolded[2].text
+	else:
+		question_percentage = None
+		sessions = None
+		print("CHECK THIS SHIT OUT NO BOLD: {0}".format(filename))
 	posts = soup.find("div", { "class" : "item text" }) #find returns the first 1 and the Q is the first post
 	question="NOT FOUND"
 	one = "NOT FOUND"
@@ -502,6 +517,9 @@ if __name__ == '__main__':
 					print("{0}: {1}".format(testOnly,test['2']))
 					print("{0}: {1}".format(testOnly,test['answer']))
 					print("{0}: {1}".format(testOnly,json.dumps(test["tags"])))
+					print("{0}: {1}".format(testOnly,test['difficulty_percentage']))
+					print("{0}: {1}".format(testOnly,test['question_percentage']))
+					print("{0}: {1}".format(testOnly,test["sessions"]))
 				else:
 					from os import listdir
 					files = listdir('.')
