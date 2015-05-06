@@ -7,11 +7,14 @@ import json
 import requests
 from pprint import pprint
 import re
+import shutil
+import os
+import http.client
 
-dlFromForum = False
+dlFromForum = True
 testFiles = False
 scrape_from_import_io = False
-testOnly =  3
+testOnly =  7
 sql_lock = threading.Lock()
 questions_lock = threading.Lock()
 questions_to_insert = {
@@ -26,6 +29,16 @@ questions_already_in_db = {
     "SC": [],
     "RC": []
 }
+
+already_downloaded_urls = []
+
+new_downloaded_urls = []
+
+shitty_qs = []
+
+limit_to_insert_into_sql = 100 #after every 100 downloads, insert into sql -> risk of not inserting if it crashes between 100s but it will download it anyways meaning if the program crashes when the number of downloaded is like 50, then those 50 will already have been downloaded but not inserted so they will be redownloaded next time
+
+links_downloaded = 0
 
 questions_to_update = []
 
@@ -55,8 +68,8 @@ def insert_questions_into_sql():
 		for type in questions_to_insert:
 			if len(type) > 0:
 				if type == "DS":
-					to_tuple = [(dict["filename"], dict["question"], dict["1"], dict["2"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else "", dict['difficulty_percentage'], dict['question_percentage'],dict['sessions']) for dict in questions_to_insert[type]]
-					c.executemany('INSERT INTO DSQuestions("filename", "question", "1", "2", "answer", "tags", "post", "imagepath", "difficulty_percentage", "question_percentage", "sessions") VALUES (?,?,?,?,?,?,?,?,?,?,?)', to_tuple)
+					to_tuple = [(dict["filename"], dict["question"], dict["1"], dict["2"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else "", dict['difficulty_percentage'], dict['question_percentage'],dict['sessions'],dict['url']) for dict in questions_to_insert[type]]
+					c.executemany('INSERT INTO DSQuestions("filename", "question", "1", "2", "answer", "tags", "post", "imagepath", "difficulty_percentage", "question_percentage", "sessions","url") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', to_tuple)
 	print(questions_to_insert)
 
 def update_difficulties():
@@ -84,30 +97,45 @@ def insert_into_sql(dict, type):
 			          (dict["filename"], dict["question"], dict["1"], dict["2"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else ""))
 
 def scrape_data_sufficiency(soup, filename):
-	possible_1 = ["(1)", "1)", "1.", "i.", "I.", "a)", "Statement #1"]
-	possible_2 = ["(2)", "2)", "2.", "ii.", "II.", "b)", "Statement #2"]
+	global shitty_qs
+	possible_1 = ["(1)", "1)", "1.", "i.", "I.", "a)", "Statement #1", "I)"]
+	possible_2 = ["(2)", "2)", "2.", "ii.", "II.", "b)", "Statement #2", "II)"]
 	result = {}
-
+	if soup.find("span", {"class": "font24margin2"}) is None:
+		shitty_qs.append(filename)
+		#print("CHECK THIS SHIT OUT NO URL: {0}".format(filename))
+		return
+	url = soup.find("span", {"class": "font24margin2"}).find("a")['href']
 	difficulty = soup.find("div", {"class": "difficulty"})
 	if difficulty is not None and difficulty.find("b") is not None:
 		difficulty_percentage = difficulty.find("b").text
 	else:
-		print("CHECK THIS SHIT OUT NO DIFFICULTYT: {0}".format(filename))
-		if difficulty.find("div").contents[0].strip() == "(N/A)":
+		if difficulty is not None and difficulty.find("div") is not None and difficulty.find("div").contents[0].strip() == "(N/A)":
 			difficulty_percentage = "N/A"
 		else:
 			difficulty_percentage = None
-			print("CHECK THIS SHIT OUT NO DIFFICULTYT: {0}".format(filename))
+			shitty_qs.append(filename)
+			#print("CHECK THIS SHIT OUT NO DIFFICULTYT1: {0}".format(filename))
+			return
 
 	question_stats = soup.find("div", {"class": "question"})
-	bolded = question_stats.find_all("b")
-	if bolded is not None:
-		question_percentage = bolded[0].text
-		sessions = bolded[2].text
+	if question_stats is not None:
+		bolded = question_stats.find_all("b")
+		if bolded is not None:
+			question_percentage = bolded[0].text
+			sessions = bolded[2].text
+		else:
+			question_percentage = None
+			sessions = None
+			shitty_qs.append(filename)
+			#print("CHECK THIS SHIT OUT NO BOLD: {0}".format(filename))
+			return
 	else:
 		question_percentage = None
 		sessions = None
-		print("CHECK THIS SHIT OUT NO BOLD: {0}".format(filename))
+		shitty_qs.append(filename)
+		#print("CHECK THIS SHIT OUT NO questionstats: {0}".format(filename))
+		return
 	posts = soup.find("div", { "class" : "item text" }) #find returns the first 1 and the Q is the first post
 	question="NOT FOUND"
 	one = "NOT FOUND"
@@ -117,73 +145,93 @@ def scrape_data_sufficiency(soup, filename):
 	try:
 		answer = posts.find("div", {"class": "downRow"}).string.strip()
 	except AttributeError:
-		print("CHECK THIS SHIT FOR ATTRIBUTE ERROR NO ATTRIBUTE: {0}".format(filename))
-		return
+		lukes_answer = soup.find("div", {"id": "lukes-answer"})
+		if lukes_answer is not None:
+			answer = lukes_answer.string
+		else:
+			shitty_qs.append(filename)
+			#print("CHECK THIS SHIT FOR NO ANSWER: {0}".format(filename))
+			return
 	if has_italics:
 		found_italics = False
 		last_c = ''
-	for c in posts.contents:
-		if question == "NOT FOUND":
-			if has_italics:
-				if type(c) != NavigableString:
-					if c.name == 'span' and 'style' in c.attrs and c['style'] == 'font-style: italic':
-						if not found_italics:
-							found_italics = True
+	try:
+		for c in posts.contents:
+			if question == "NOT FOUND":
+				if has_italics:
+					if type(c) != NavigableString:
+						if c.name == 'span' and 'style' in c.attrs and c['style'] == 'font-style: italic':
+							if not found_italics:
+								found_italics = True
+							last_c = last_c + c.string
+					elif not found_italics:
+						last_c = c.string
+					else:
 						last_c = last_c + c.string
-				elif not found_italics:
-					last_c = c.string
-				else:
-					last_c = last_c + c.string
-			if '?' in str(c):
-				if type(c) == NavigableString:
-					to_strip = str(c)
-					if has_italics:
-						to_strip = last_c
-					for character in replace_chars:
-						if character in to_strip:
-							to_strip = to_strip.replace(character, replace_chars[character])
-					question = to_strip.replace('\t','').replace('\n','').strip()
-				elif type(c) == Tag:
-					for inner_contents in c.contents:
-						if '?' in str(inner_contents):
-							to_strip = str(inner_contents)
-							for character in replace_chars:
-								if character in to_strip:
-									to_strip = to_strip.replace(character, replace_chars[character])
-							question = to_strip.replace('\t','').replace('\n','').strip()
-				else:
-					print(type(c))
-					pass
-		if question != "NOT FOUND" and one == "NOT FOUND":
-			for poss in possible_1:
-				if one == "NOT FOUND":
-					if poss in str(c):
-						if type(c) == Tag:
-							for z in c.contents:
-								if one == "NOT FOUND":
-									#print(re.split(r"(<br>|\t)", str(z)))
-									#print('end reg')
-									#splitted = str(z).split("<br>")
-									splitted = re.split(r"(<br>|\t)", str(z))
-									for strng in splitted:
-										if poss in strng and  one == "NOT FOUND":
-											one = strng.replace(poss, '').strip()
-						else:
-							one = c.string.replace(poss, '').strip()
-		if question != "NOT FOUND" and one != "NOT FOUND" and two == "NOT FOUND":
-			for poss in possible_2:
-				if two == "NOT FOUND":
-					if poss in str(c):
-						if type(c) == Tag:
-							for z in c.contents:
-								if two == "NOT FOUND":
-									splitted = str(z).split("<br>")
-									splitted = re.split(r"(<br>|\t)", str(z))
-									for strng in splitted:
-										if poss in strng and  two == "NOT FOUND":
-											two = strng.replace(poss, '').strip()
-						else:
-							two = c.string.replace(poss, '').strip()
+				if '?' in str(c):
+					if type(c) == NavigableString:
+						to_strip = str(c)
+						if has_italics:
+							to_strip = last_c
+						for character in replace_chars:
+							if character in to_strip:
+								to_strip = to_strip.replace(character, replace_chars[character])
+						question = to_strip.replace('\t','').replace('\n','').strip()
+					elif type(c) == Tag:
+						for inner_contents in c.contents:
+							if '?' in str(inner_contents):
+								to_strip = str(inner_contents)
+								for character in replace_chars:
+									if character in to_strip:
+										to_strip = to_strip.replace(character, replace_chars[character])
+								question = to_strip.replace('\t','').replace('\n','').strip()
+					else:
+						print(type(c))
+						pass
+			if one == "NOT FOUND":
+				for poss in possible_1:
+					if one == "NOT FOUND":
+						if poss in str(c):
+							if question == "NOT FOUND":
+								if str(c.previous_element) == '<br/>':
+									prev_elem = c.previous_element
+									while str(prev_elem) == '<br/>':
+										prev_elem = prev_elem.previous_element
+									to_strip = str(prev_elem)
+									for character in replace_chars:
+										if character in to_strip:
+											to_strip = to_strip.replace(character, replace_chars[character])
+									question = to_strip.replace('\t','').replace('\n','').strip()
+							if type(c) == Tag:
+								for z in c.contents:
+									if one == "NOT FOUND":
+										#print(re.split(r"(<br>|\t)", str(z)))
+										#print('end reg')
+										#splitted = str(z).split("<br>")
+										splitted = re.split(r"(<br>|\t)", str(z))
+										for strng in splitted:
+											if poss in strng and  one == "NOT FOUND":
+												one = strng.replace(poss, '').strip()
+							else:
+								one = c.string.replace(poss, '').strip()
+			if question != "NOT FOUND" and one != "NOT FOUND" and two == "NOT FOUND":
+				for poss in possible_2:
+					if two == "NOT FOUND":
+						if poss in str(c):
+							if type(c) == Tag:
+								for z in c.contents:
+									if two == "NOT FOUND":
+										splitted = str(z).split("<br>")
+										splitted = re.split(r"(<br>|\t)", str(z))
+										for strng in splitted:
+											if poss in strng and  two == "NOT FOUND":
+												two = strng.replace(poss, '').strip()
+							else:
+								two = c.string.replace(poss, '').strip()
+	except TypeError:
+		#print("CHECK THIS SHIT type error: {0}".format(filename))
+		shitty_qs.append(filename)
+		return
 	result["image"] = False
 	if has_attachment:
 		src = posts.find("div", { "class" : "attachcontent" })
@@ -196,7 +244,6 @@ def scrape_data_sufficiency(soup, filename):
 			image_path = img_name
 		if not (os.path.isfile(image_path)):
 			web_image_path = 'http://gmatclub.com/forum{0}'.format(src.find("img")["src"][1:])
-			req = Request(web_image_path, headers={'User-Agent': 'Mozilla/5.0'})
 			urlretrieve(web_image_path, image_path)
 		result["image"] = True
 		result["imagepath"] = image_path
@@ -211,8 +258,11 @@ def scrape_data_sufficiency(soup, filename):
 	result['2'] = two
 	result['answer'] = answer
 	result['filename'] = filename
+	result['url'] = url
 	if question == "NOT FOUND" or one == "NOT FOUND" or two == "NOT FOUND":
-		print("CHECK THIS SHIT: {0}".format(filename))
+		shitty_qs.append(filename)
+		#print("CHECK THIS SHIT no q 1 or 2: {0}".format(filename))
+		return
 	#pprint(result['question'])
 	result['difficulty_percentage'] = difficulty_percentage
 	result['question_percentage'] = question_percentage
@@ -305,6 +355,7 @@ def scrape_downloaded_posts(type):
 	files = listdir(type)
 	threads = []
 	files_in_sql = get_files_in_db(type)
+	downloaded_url_filenames_in_sql = [f[0] for f in get_downloaded_filenames()]
 	questions_in_sql_type = get_questions_in_db(type)
 	questions_already_in_db[type] = [question[0] for question in questions_in_sql_type]
 	if type == "DS":
@@ -316,20 +367,24 @@ def scrape_downloaded_posts(type):
 	for_each_thread = []
 	for i in range(thread_limit):
 		for_each_thread.append([])
-	test_limit = 300
+	test_limit = 3000
 	inserted = 0
 	cur_thread = 0
 	for t in files:
 		if inserted == test_limit:
 			break
-		if t not in as_array and '.html' in t:
+		if t not in as_array and '.html' in t and t in downloaded_url_filenames_in_sql:
 			for_each_thread[cur_thread].append((t,type))
 			cur_thread += 1
 			inserted += 1
+			print(t)
 			if cur_thread == thread_limit: cur_thread = 0
 		if t in as_array:
 			pass
 			#update with difficult
+		if t not in downloaded_url_filenames_in_sql and ".html" in t:
+			pass
+			#print("{0} is not in the links dled??".format(t))
 	print('starting threads')
 
 	for thread in for_each_thread:
@@ -360,23 +415,14 @@ def scrape_forum_post(type, filepath = None):
 	if type == "DS":
 		return scrape_data_sufficiency(soup, file)
 
-def insert_into_sql_downloaded_link(link, full_filename):
-	#filename, question, one, two, answer, tags, post, imagepath
+def insert_into_sql_downloaded_links():
+	print("updating sql with downloaded links")
 	conn = sqlite3.connect('db.db')
 	with conn:
 		c = conn.cursor()
-		c.execute("SELECT EXISTS(SELECT 1 FROM LinksDLed WHERE link = ?)",(str(link),))
-		if c.fetchone()[0] != 0:
-			print("Found in!")
-		else:
-			c.execute('INSERT INTO LinksDLed("link", "filename") VALUES (?,?)',
-		          (str(link), full_filename))
-			req = Request(link, headers={'User-Agent': 'Mozilla/5.0'})
-			import time
-			print('waiting two seconds..')
-			time.sleep(2) #prevent bot capture?
-			print('getting {0}'.format(link))
-			urlretrieve(link, full_filename)
+		to_tuple = [(dict["link"], dict["filename"]) for dict in new_downloaded_urls]
+		c.executemany('INSERT INTO LinksDLed("link", "filename") VALUES (?,?)', to_tuple)
+
 
 def download_forum_post(link, type):
 	#print ("Downloading page {0}".format(link))
@@ -386,28 +432,60 @@ def download_forum_post(link, type):
 	while os.path.isfile(filename_to_save):
 		filename_to_save = "{0}_{1}.html".format(type,uuid.uuid4())
 	full_filename = os.path.join(type, filename_to_save)
-	sql_lock.acquire() #this has to be done each time in case it stops working
+	import time
+	time.sleep(5) #because ban -> 5 seconds if sleeping, should be enough to not be a bot...
 	try:
-		insert_into_sql_downloaded_link(link, full_filename)
-	finally:
-		sql_lock.release()
+		urlretrieve(link, full_filename)
+	except http.client.BadStatusLine:
+		print("{0} raised an error downloading".format(link))
+	return full_filename
 
+def get_downloaded_urls():
+	#filename, question, one, two, answer, tags, post, imagepath
+	conn = sqlite3.connect('db.db')
+	with conn:
+		c = conn.cursor()
+		c.execute("SELECT link FROM LinksDLed")
+		return c.fetchall()
 
-def scrape_forum_index(link):
+def get_downloaded_filenames():
+	#filename, question, one, two, answer, tags, post, imagepath
+	conn = sqlite3.connect('db.db')
+	with conn:
+		c = conn.cursor()
+		c.execute("SELECT substr(filename,4) FROM LinksDLed")
+		return c.fetchall()
+
+def scrape_forum_index(link, type):
+	global links_downloaded
+	global already_downloaded_urls
+	global new_downloaded_urls
 	print ("Reading page...")
 	req = Request(link, headers={'User-Agent': 'Mozilla/5.0'})
 
 	page = urlopen(req).read()
 	#requests_result = requests.get(link)
-
+	print(page)
 	soup = BeautifulSoup(page)
 
 	titles = soup.find_all("span", "topicTitle")
 	threads = []
 	#dont thread it lol because it banned last time...
+	print("titles are {0}".format(titles))
+
 	for t in titles:
 		new_link = t.parent["href"]
-		download_forum_post(new_link,"DS")
+		links_of_downloaded = [newly_downloaded["link"] for newly_downloaded in new_downloaded_urls]
+		if new_link not in already_downloaded_urls and new_link not in links_of_downloaded:
+			new_filename = download_forum_post(new_link,type)
+			new_downloaded_urls.append({"link": new_link, "filename": new_filename} )
+			links_downloaded += 1
+			if links_downloaded == limit_to_insert_into_sql:
+				links_downloaded = 0
+				insert_into_sql_downloaded_links()
+				already_downloaded_urls += links_of_downloaded
+				new_downloaded_urls = []
+	insert_into_sql_downloaded_links()
 
 	print ("done downloading!!")
 
@@ -476,6 +554,12 @@ def parse_data_sufficiency_io_posts(dict):
 								result['2'] = post_content[two_start:two_end].strip()
 								print(result['2'])
 
+def move_file_to(filename, original_subdir, final_subdir):
+	dir = os.path.dirname(__file__)
+	file_path = os.path.join(os.path.join(dir, original_subdir), filename)
+	new_path = os.path.join(os.path.join(dir, final_subdir), filename)
+	shutil.move(file_path, new_path)
+
 def scrape_import_io_posts(file, type):
 	dict = []
 	with open(file, encoding="utf-8") as csvfile:
@@ -494,17 +578,28 @@ if __name__ == '__main__':
 	#print ('My public ip address is:', ip)
 	files = get_files_in_db("DS")
 	as_array = [filename[0] for filename in files]
-	print(as_array)
+	#print(as_array)
 	#urlretrieve('https://magic.import.io/?site=http:%2F%2Fgmatclub.com%2Fforum%2Fviewtopic.php%3Ff%3D141%26t%3D106989%26view%3Dunread%26sid%3Dc9cdbc10207344ece642ae0c5bb6a189%23unread', 'blah.html')
 	if not skip:
 		if dlFromForum:
+			already_downloaded_urls = [s[0] for s in get_downloaded_urls()]
 			#for since 2006: for i in range(2500,2400,-50):
-			for i in range(1050,1000,-50):
-				link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=180&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
-				scrape_forum_index(link)
+			for i in range(900,0,-50):
+				'''
+				###DS####
+				link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=222&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
+				scrape_forum_index(link, "DS")
 				import time
-				print('waiting two seconds')
-				time.sleep(2)
+				print('finished {0} now waiting 1 seconds'.format(i))
+				time.sleep(1)
+				'''
+
+				######PS####
+				link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=187&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
+				scrape_forum_index(link, "PS")
+				import time
+				print('finished {0} now waiting 5 seconds'.format(i))
+				time.sleep(5)
 		elif scrape_from_import_io:
 			import_io_file = 'import_io_ds_cleaned.csv'
 			scrape_import_io_posts(import_io_file, "DS")
@@ -533,3 +628,6 @@ if __name__ == '__main__':
 			else:
 				print('scraping dl')
 				scrape_downloaded_posts("DS")
+				for q in shitty_qs:
+					move_file_to(q, "DS", "ShittyQs/DS")
+					#print(q)

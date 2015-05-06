@@ -1,0 +1,1 @@
+update DSQuestions set url = (select link from LinksDLed where DSQuestions.filename = substr(LinksDLed.filename,4))
