@@ -14,7 +14,7 @@ import http.client
 dlFromForum = False
 testFiles = True
 scrape_from_import_io = False
-testOnly =  6
+testOnly =  None
 sql_lock = threading.Lock()
 questions_lock = threading.Lock()
 questions_to_insert = {
@@ -330,43 +330,21 @@ def scrape_problem_solving(soup, filename):
 	try:
 		poss_found = None
 		for c in posts.contents:
-			if question == "NOT FOUND":
-				if has_italics:
-					if type(c) != NavigableString:
-						if c.name == 'span' and 'style' in c.attrs and c['style'] == 'font-style: italic':
-							if not found_italics:
-								found_italics = True
-							last_c = last_c + c.string
-					elif not found_italics:
-						last_c = c.string
-					else:
-						last_c = last_c + c.string
-				if '?' in str(c):
-					if type(c) == NavigableString:
-						to_strip = str(c)
-						if has_italics:
-							to_strip = last_c
-						for character in replace_chars:
-							if character in to_strip:
-								to_strip = to_strip.replace(character, replace_chars[character])
-						question = to_strip.replace('\t','').replace('\n','').strip()
-					elif type(c) == Tag:
-						for inner_contents in c.contents:
-							if '?' in str(inner_contents):
-								to_strip = str(inner_contents)
-								for character in replace_chars:
-									if character in to_strip:
-										to_strip = to_strip.replace(character, replace_chars[character])
-								question = to_strip.replace('\t','').replace('\n','').strip()
-					else:
-						print(type(c))
-						pass
 			if options["A"] == "NOT FOUND":
 				for poss in possible_A:
 					if options["A"] == "NOT FOUND":
 						if poss in str(c):
 							poss_found = poss
-							print(c.previous_siblings)
+							q = ''
+							first = True
+							for sibs in c.previous_siblings:
+								if str(sibs) != '<br/>':
+									if not first:
+										q = str(sibs).strip() + "\n" + str(q)
+									else:
+										q = str(sibs).strip()
+										first = False
+							question = q
 							if question == "NOT FOUND":
 								if str(c.previous_element) == '<br/>':
 									prev_elem = c.previous_element
@@ -392,7 +370,6 @@ def scrape_problem_solving(soup, filename):
 							else:
 								options["A"] = c.string.replace(poss, '').strip()
 								next_letters = ["B","C","D","E"]
-								print(c)
 								if str(c.next_element) == '<br/>':
 									temp_elem = c
 									for letter in next_letters:
