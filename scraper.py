@@ -10,10 +10,10 @@ import shutil
 import os
 import http.client
 
-dlFromForum = True
-testFiles = False
+dlFromForum = False
+testFiles = True
 scrape_from_import_io = False
-testOnly =  None
+testOnly =  12
 sql_lock = threading.Lock()
 questions_lock = threading.Lock()
 questions_to_insert = {
@@ -417,6 +417,169 @@ def scrape_problem_solving(soup, filename):
 	result['sessions'] = sessions
 	return result
 
+def scrape_sentence_correction(soup, filename):
+	global shitty_qs
+
+
+	possible_A = ["A.", "(A)", "A)"]
+	result = {}
+	if soup.find("span", {"class": "font24margin2"}) is None:
+		shitty_qs.append(filename)
+		#print("CHECK THIS SHIT OUT NO URL: {0}".format(filename))
+		return
+	url = soup.find("span", {"class": "font24margin2"}).find("a")['href']
+	difficulty = soup.find("div", {"class": "difficulty"})
+	if difficulty is not None and difficulty.find("b") is not None:
+		difficulty_percentage = difficulty.find("b").text
+	else:
+		if difficulty is not None and difficulty.find("div") is not None and difficulty.find("div").contents[0].strip() == "(N/A)":
+			difficulty_percentage = "N/A"
+		else:
+			difficulty_percentage = None
+			shitty_qs.append(filename)
+			#print("CHECK THIS SHIT OUT NO DIFFICULTYT1: {0}".format(filename))
+			return
+
+	question_stats = soup.find("div", {"class": "question"})
+	if question_stats is not None:
+		bolded = question_stats.find_all("b")
+		if bolded is not None:
+			question_percentage = bolded[0].text
+			sessions = bolded[2].text
+		else:
+			question_percentage = None
+			sessions = None
+			shitty_qs.append(filename)
+			#print("CHECK THIS SHIT OUT NO BOLD: {0}".format(filename))
+			return
+	else:
+		question_percentage = None
+		sessions = None
+		shitty_qs.append(filename)
+		#print("CHECK THIS SHIT OUT NO questionstats: {0}".format(filename))
+		return
+	posts = soup.find("div", { "class" : "item text" }) #find returns the first 1 and the Q is the first post
+	question="NOT FOUND"
+	options = {"A": "NOT FOUND", "B": "NOT FOUND", "C": "NOT FOUND", "D": "NOT FOUND", "E": "NOT FOUND"}
+	has_attachment = posts.find(text='Attachment:') is not None
+	has_italics = len(posts.find_all("span", {"style": "font-style: italic"})) > 0
+	answer = None
+	possible_answers = ["A","B","C","D","E"]
+	for p in possible_answers:
+		test = "{0}'.toLowerCase".format(p)
+		if str(soup).find(test) != -1:
+			answer = p
+			break
+	if answer is None:
+		try:
+			answer = posts.find("div", {"class": "downRow"}).string.strip()
+		except AttributeError:
+			lukes_answer = soup.find("div", {"id": "lukes-answer"})
+			if lukes_answer is not None:
+				answer = lukes_answer.string
+			else:
+				shitty_qs.append(filename)
+				#print("CHECK THIS SHIT FOR NO ANSWER: {0}".format(filename))
+				return
+	if has_italics:
+		found_italics = False
+		last_c = ''
+	try:
+		poss_found = None
+		for c in posts.contents:
+			if options["A"] == "NOT FOUND":
+				for poss in possible_A:
+					if options["A"] == "NOT FOUND":
+						if poss in str(c):
+							poss_found = poss
+							q = ''
+							first = True
+							for sibs in c.previous_siblings:
+								if str(sibs) != '<br/>':
+									if not first:
+										q = str(sibs).strip() + "\n" + str(q)
+									else:
+										q = str(sibs).strip()
+										first = False
+							question = q
+							if question == "NOT FOUND":
+								if str(c.previous_element) == '<br/>':
+									prev_elem = c.previous_element
+									while str(prev_elem) == '<br/>':
+										prev_elem = prev_elem.previous_element
+									to_strip = str(prev_elem)
+									for character in replace_chars:
+										if character in to_strip:
+											to_strip = to_strip.replace(character, replace_chars[character])
+									question = to_strip.replace('\t','').replace('\n','').strip()
+
+							if type(c) == Tag:
+								for z in c.contents:
+									if options["A"] == "NOT FOUND":
+										#print(re.split(r"(<br>|\t)", str(z)))
+										#print('end reg')
+										#splitted = str(z).split("<br>")
+										splitted = re.split(r"(<br>|\t)", str(z))
+										for strng in splitted:
+											if poss in strng and  options["A"] == "NOT FOUND":
+												options["A"] = strng.replace(poss, '').strip()
+
+							else:
+								options["A"] = c.string.replace(poss, '').strip()
+								next_letters = ["B","C","D","E"]
+								if str(c.next_element) == '<br/>':
+									temp_elem = c
+									for letter in next_letters:
+										while(str(temp_elem.next_element) == '<br/>'):
+											temp_elem = temp_elem.next_element
+										this_opt = str(temp_elem.next_element)
+										options[letter] = this_opt.replace(poss.replace("A", letter), '').strip()
+										temp_elem = temp_elem.next_element
+	except TypeError:
+		#print("CHECK THIS SHIT type error: {0}".format(filename))
+		shitty_qs.append(filename)
+		return
+	result["image"] = False
+	if has_attachment:
+		src = posts.find("div", { "class" : "attachcontent" })
+		#grab attachment
+		import os.path
+		img_name = "{0}-IMG-1.jpg".format(filename.split(".html")[0])
+		if "\DS" not in img_name:
+			image_path = os.path.join("DS", img_name)
+		else:
+			image_path = img_name
+		if not (os.path.isfile(image_path)):
+			web_image_path = 'http://gmatclub.com/forum{0}'.format(src.find("img")["src"][1:])
+			urlretrieve(web_image_path, image_path)
+		result["image"] = True
+		result["imagepath"] = image_path
+	#print("{0}: {1}".format(filename,question))
+	text = posts.getText()
+
+	tags = soup.find("div", {"id": "taglist"})
+	result['tags'] = tags.getText().split("\xa0 \xa0")
+	result['post'] = text
+	result['question'] = question
+	result['A'] = options["A"]
+	result["B"] = options["B"]
+	result["C"] = options["C"]
+	result["D"] = options["D"]
+	result["E"] = options["E"]
+	result['answer'] = answer
+	result['filename'] = filename
+	result['url'] = url
+	to_not_be_not_found = [question, options["A"], options["B"], options["C"], options["D"], options["E"]]
+	if "NOT FOUND" in to_not_be_not_found:
+		shitty_qs.append(filename)
+		#print("CHECK THIS SHIT no q 1 or 2: {0}".format(filename))
+		return
+	#pprint(result['question'])
+	result['difficulty_percentage'] = difficulty_percentage
+	result['question_percentage'] = question_percentage
+	result['sessions'] = sessions
+	return result
+
 def scrape_file(filename, type):
 	assert ".html" in filename
 	import os.path
@@ -560,6 +723,8 @@ def scrape_forum_post(type, filepath = None):
 		return scrape_data_sufficiency(soup, file)
 	elif type == "PS":
 		return scrape_problem_solving(soup, file)
+	elif type == "SC":
+		return scrape_sentence_correction(soup, file)
 
 def insert_into_sql_downloaded_links():
 	print("updating sql with downloaded links")
@@ -763,7 +928,7 @@ if __name__ == '__main__':
 		else:
 			if testFiles:
 				if testOnly is not None:
-					test = scrape_forum_post("PS", filepath = "bs{0}.html".format(testOnly))
+					test = scrape_forum_post("SC", filepath = "bs{0}.html".format(testOnly))
 					print("{0}: {1}".format(testOnly,test['question']))
 					print("{0}: {1}".format(testOnly,test['A']))
 					print("{0}: {1}".format(testOnly,test['B']))
@@ -780,7 +945,7 @@ if __name__ == '__main__':
 					files = listdir('.')
 					for f in files:
 						if "bs" in f:
-							test= scrape_forum_post("PS", filepath = f)
+							test= scrape_forum_post("SC", filepath = f)
 							print("{0}: {1}".format(f,test['question']))
 							print("{0}: {1}".format(f,test['A']))
 							print("{0}: {1}".format(f,test['B']))
