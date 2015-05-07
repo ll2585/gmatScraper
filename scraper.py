@@ -4,15 +4,14 @@ from urllib.request import urlopen, urlretrieve, Request
 import threading
 import sqlite3
 import json
-import requests
 from pprint import pprint
 import re
 import shutil
 import os
 import http.client
 
-dlFromForum = False
-testFiles = True
+dlFromForum = True
+testFiles = False
 scrape_from_import_io = False
 testOnly =  None
 sql_lock = threading.Lock()
@@ -51,16 +50,7 @@ replace_chars = {
 	'â‰': '≠',
     'â€“': '–'
 }
-''' TODO: Delete if confirm that is unneeded
-def already_in_sql_database(filename, type):
-	if type == "DS":
-		#filename, question, one, two, answer, tags, post, imagepath
-		conn = sqlite3.connect('db.db')
-		with conn:
-			c = conn.cursor()
-			c.execute("SELECT EXISTS(SELECT 1 FROM DSQuestions WHERE filename= ?)",(filename,))
-			return c.fetchone()[0] != 0
-'''
+
 def insert_questions_into_sql():
 	conn = sqlite3.connect('db.db')
 	with conn:
@@ -70,6 +60,10 @@ def insert_questions_into_sql():
 				if type == "DS":
 					to_tuple = [(dict["filename"], dict["question"], dict["1"], dict["2"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else "", dict['difficulty_percentage'], dict['question_percentage'],dict['sessions'],dict['url']) for dict in questions_to_insert[type]]
 					c.executemany('INSERT INTO DSQuestions("filename", "question", "1", "2", "answer", "tags", "post", "imagepath", "difficulty_percentage", "question_percentage", "sessions","url") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', to_tuple)
+				elif type == "PS":
+					to_tuple = [(dict["filename"], dict["question"], dict["A"], dict["B"], dict["C"], dict["D"], dict["E"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else "", dict['difficulty_percentage'], dict['question_percentage'],dict['sessions'],dict['url']) for dict in questions_to_insert[type]]
+					c.executemany('INSERT INTO PSQuestions("filename", "question", "A", "B", "C", "D", "E", "answer", "tags", "post", "imagepath", "difficulty_percentage", "question_percentage", "sessions","url") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', to_tuple)
+
 	print(questions_to_insert)
 
 def update_difficulties():
@@ -425,16 +419,6 @@ def scrape_problem_solving(soup, filename):
 
 def scrape_file(filename, type):
 	assert ".html" in filename
-	'''TODO: delete if confirmed unneeded
-	already_in_db = False
-	sql_lock.acquire()
-	try:
-		already_in_db = already_in_sql_database(filename, type)
-	finally:
-		sql_lock.release()
-	if already_in_db:
-		return
-	'''
 	import os.path
 	with open ( os.path.join(type, filename), "r" , encoding="utf-8") as myfile:
 		try:
@@ -469,49 +453,36 @@ def scrape_file(filename, type):
 			questions_lock.acquire()
 			try:
 				other_questions = [d['question'] for d in questions_to_insert[type]]
-				other_ones= [d['1'] for d in questions_to_insert[type]]
-				other_twos= [d['2'] for d in questions_to_insert[type]]
 				this_question = problem_solving_questions['question']
-				this_one = problem_solving_questions['1']
-				this_two = problem_solving_questions['2']
-				if (this_question not in questions_already_in_db and this_question not in other_questions and this_question != "NOT FOUND" and
-					this_one not in ones_already_in_db and this_one not in other_ones and this_one != "NOT FOUND" and
-					this_two not in twos_already_in_db and this_two not in other_twos and this_two != "NOT FOUND"):
+				if this_question not in questions_already_in_db and this_question not in other_questions and this_question != "NOT FOUND":
 					questions_to_insert[type].append(problem_solving_questions)
 				else:
 					pass
 					#print('question {0} is already in the db!'.format(this_question))
 			finally:
 				questions_lock.release()
-		''' actually put it in memory...faster
-		sql_lock.acquire()
-		try:
-			insert_into_sql(data_sufficiency_questions, type)
-		finally:
-			sql_lock.release()
-		print("{0}: {1}".format(filename,data_sufficiency_questions['question']))
-		print("{0}: {1}".format(filename,data_sufficiency_questions['1']))
-		print("{0}: {1}".format(filename,data_sufficiency_questions['2']))
-		print("{0}: {1}".format(filename,data_sufficiency_questions['answer']))
-		'''
 
 def get_files_in_db(type):
-	if type == "DS":
-		#filename, question, one, two, answer, tags, post, imagepath
-		conn = sqlite3.connect('db.db')
-		with conn:
-			c = conn.cursor()
+	#filename, question, one, two, answer, tags, post, imagepath
+	conn = sqlite3.connect('db.db')
+	with conn:
+		c = conn.cursor()
+		if type == "DS":
 			c.execute("SELECT filename FROM DSQuestions")
-			return c.fetchall()
+		elif type == "PS":
+			c.execute("SELECT filename FROM PSQuestions")
+		return c.fetchall()
 
 def get_questions_in_db(type):
-	if type == "DS":
-		#filename, question, one, two, answer, tags, post, imagepath
-		conn = sqlite3.connect('db.db')
-		with conn:
-			c = conn.cursor()
+	#filename, question, one, two, answer, tags, post, imagepath
+	conn = sqlite3.connect('db.db')
+	with conn:
+		c = conn.cursor()
+		if type == "DS":
 			c.execute("SELECT question FROM DSQuestions")
-			return c.fetchall()
+		elif type == "PS":
+			c.execute("SELECT question FROM PSQuestions")
+		return c.fetchall()
 
 def get_ones_twos_in_ds():
 	conn = sqlite3.connect('db.db')
@@ -541,7 +512,7 @@ def scrape_downloaded_posts(type):
 	for_each_thread = []
 	for i in range(thread_limit):
 		for_each_thread.append([])
-	test_limit = 3000
+	test_limit = 1000
 	inserted = 0
 	cur_thread = 0
 	for t in files:
@@ -551,7 +522,6 @@ def scrape_downloaded_posts(type):
 			for_each_thread[cur_thread].append((t,type))
 			cur_thread += 1
 			inserted += 1
-			print(t)
 			if cur_thread == thread_limit: cur_thread = 0
 		if t in as_array:
 			pass
@@ -653,6 +623,7 @@ def scrape_forum_index(link, type):
 		new_link = t.parent["href"]
 		links_of_downloaded = [newly_downloaded["link"] for newly_downloaded in new_downloaded_urls]
 		if new_link not in already_downloaded_urls and new_link not in links_of_downloaded:
+			print("grabbing {0}".format(new_link))
 			new_filename = download_forum_post(new_link,type)
 			new_downloaded_urls.append({"link": new_link, "filename": new_filename} )
 			links_downloaded += 1
@@ -760,7 +731,7 @@ if __name__ == '__main__':
 		if dlFromForum:
 			already_downloaded_urls = [s[0] for s in get_downloaded_urls()]
 			#for since 2006: for i in range(2500,2400,-50):
-			for i in range(900,0,-50):
+			for i in range(2650,0,-50):
 				'''
 				###DS####
 				link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=222&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
@@ -768,11 +739,21 @@ if __name__ == '__main__':
 				import time
 				print('finished {0} now waiting 1 seconds'.format(i))
 				time.sleep(1)
-				'''
+
 
 				######PS####
-				link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=187&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
+				link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=216&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
 				scrape_forum_index(link, "PS")
+				import time
+				print('finished {0} now waiting 5 seconds'.format(i))
+				time.sleep(5)
+				'''
+
+				######SC####
+				#link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=172&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
+				#^ tghat is the hard one do these ones after you get home
+				link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=231&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
+				scrape_forum_index(link, "SC")
 				import time
 				print('finished {0} now waiting 5 seconds'.format(i))
 				time.sleep(5)
@@ -809,7 +790,7 @@ if __name__ == '__main__':
 							print("{0}: {1}".format(f,test['answer']))
 			else:
 				print('scraping dl')
-				scrape_downloaded_posts("DS")
+				scrape_downloaded_posts("PS")
 				for q in shitty_qs:
-					move_file_to(q, "DS", "ShittyQs/DS")
+					move_file_to(q, "PS", "ShittyQs/PS")
 					#print(q)
