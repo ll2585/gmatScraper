@@ -10,23 +10,26 @@ import shutil
 import os
 import http.client
 
+
+sleep_delay = 1
 dlFromForum = False
-testFiles = True
-scrape_from_import_io = False
-testOnly =  12
+testFiles = False
+testOnly =  8
 sql_lock = threading.Lock()
 questions_lock = threading.Lock()
 questions_to_insert = {
 	"DS": [],
     "PS": [],
     "SC": [],
-    "RC": []
+    "RC": [],
+    "CR": []
 }
 questions_already_in_db = {
 	"DS": [],
     "PS": [],
     "SC": [],
-    "RC": []
+    "RC": [],
+    "CR": []
 }
 
 already_downloaded_urls = []
@@ -63,6 +66,9 @@ def insert_questions_into_sql():
 				elif type == "PS":
 					to_tuple = [(dict["filename"], dict["question"], dict["A"], dict["B"], dict["C"], dict["D"], dict["E"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else "", dict['difficulty_percentage'], dict['question_percentage'],dict['sessions'],dict['url']) for dict in questions_to_insert[type]]
 					c.executemany('INSERT INTO PSQuestions("filename", "question", "A", "B", "C", "D", "E", "answer", "tags", "post", "imagepath", "difficulty_percentage", "question_percentage", "sessions","url") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', to_tuple)
+				elif type == "SC":
+					to_tuple = [(dict["filename"], dict["question"], dict["A"], dict["B"], dict["C"], dict["D"], dict["E"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else "", dict['difficulty_percentage'], dict['question_percentage'],dict['sessions'],dict['url']) for dict in questions_to_insert[type]]
+					c.executemany('INSERT INTO SCQuestions("filename", "question", "A", "B", "C", "D", "E", "answer", "tags", "post", "imagepath", "difficulty_percentage", "question_percentage", "sessions","url") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', to_tuple)
 
 	print(questions_to_insert)
 
@@ -76,19 +82,6 @@ def update_difficulties():
 					to_tuple = [(d["difficulty_percentage"], d["question_percentage"], d["sessions"]) for d in questions_to_update]
 					c.executemany('UPDATE DSQuestions SET difficulty_percentage = ?, question_percentage = ?, sessions = ? WHERE filename = ?', to_tuple)
 	print(questions_to_update)
-
-def insert_into_sql(dict, type):
-	if type == "DS":
-		#filename, question, one, two, answer, tags, post, imagepath
-		conn = sqlite3.connect('db.db')
-		with conn:
-			c = conn.cursor()
-			c.execute("SELECT EXISTS(SELECT 1 FROM DSQuestions WHERE question= ?)",(dict['question'],))
-			if c.fetchone()[0] != 0:
-				print("Found!")
-			else:
-				c.execute('INSERT INTO DSQuestions("filename", "question", "1", "2", "answer", "tags", "post", "imagepath") VALUES (?,?,?,?,?,?,?,?)',
-			          (dict["filename"], dict["question"], dict["1"], dict["2"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else ""))
 
 def scrape_data_sufficiency(soup, filename):
 	global shitty_qs
@@ -419,13 +412,13 @@ def scrape_problem_solving(soup, filename):
 
 def scrape_sentence_correction(soup, filename):
 	global shitty_qs
-
+	print_shit = False
 
 	possible_A = ["A.", "(A)", "A)"]
 	result = {}
 	if soup.find("span", {"class": "font24margin2"}) is None:
 		shitty_qs.append(filename)
-		#print("CHECK THIS SHIT OUT NO URL: {0}".format(filename))
+		if print_shit: print("CHECK THIS SHIT OUT NO URL: {0}".format(filename))
 		return
 	url = soup.find("span", {"class": "font24margin2"}).find("a")['href']
 	difficulty = soup.find("div", {"class": "difficulty"})
@@ -437,7 +430,7 @@ def scrape_sentence_correction(soup, filename):
 		else:
 			difficulty_percentage = None
 			shitty_qs.append(filename)
-			#print("CHECK THIS SHIT OUT NO DIFFICULTYT1: {0}".format(filename))
+			if print_shit: print("CHECK THIS SHIT OUT NO DIFFICULTYT1: {0}".format(filename))
 			return
 
 	question_stats = soup.find("div", {"class": "question"})
@@ -450,13 +443,13 @@ def scrape_sentence_correction(soup, filename):
 			question_percentage = None
 			sessions = None
 			shitty_qs.append(filename)
-			#print("CHECK THIS SHIT OUT NO BOLD: {0}".format(filename))
+			if print_shit: print("CHECK THIS SHIT OUT NO BOLD: {0}".format(filename))
 			return
 	else:
 		question_percentage = None
 		sessions = None
 		shitty_qs.append(filename)
-		#print("CHECK THIS SHIT OUT NO questionstats: {0}".format(filename))
+		if print_shit: print("CHECK THIS SHIT OUT NO questionstats: {0}".format(filename))
 		return
 	posts = soup.find("div", { "class" : "item text" }) #find returns the first 1 and the Q is the first post
 	question="NOT FOUND"
@@ -479,7 +472,7 @@ def scrape_sentence_correction(soup, filename):
 				answer = lukes_answer.string
 			else:
 				shitty_qs.append(filename)
-				#print("CHECK THIS SHIT FOR NO ANSWER: {0}".format(filename))
+				if print_shit: print("CHECK THIS SHIT FOR NO ANSWER: {0}".format(filename))
 				return
 	if has_italics:
 		found_italics = False
@@ -491,27 +484,27 @@ def scrape_sentence_correction(soup, filename):
 				for poss in possible_A:
 					if options["A"] == "NOT FOUND":
 						if poss in str(c):
-							poss_found = poss
-							q = ''
-							first = True
-							for sibs in c.previous_siblings:
-								if str(sibs) != '<br/>':
-									if not first:
-										q = str(sibs).strip() + "\n" + str(q)
-									else:
-										q = str(sibs).strip()
-										first = False
-							question = q
-							if question == "NOT FOUND":
-								if str(c.previous_element) == '<br/>':
-									prev_elem = c.previous_element
-									while str(prev_elem) == '<br/>':
-										prev_elem = prev_elem.previous_element
-									to_strip = str(prev_elem)
-									for character in replace_chars:
-										if character in to_strip:
-											to_strip = to_strip.replace(character, replace_chars[character])
-									question = to_strip.replace('\t','').replace('\n','').strip()
+							if type(c) != Tag:
+								q = ''
+								first = True
+								for sibs in c.previous_siblings:
+									if str(sibs) != '<br/>':
+										if not first:
+											q = str(sibs).strip() + "\n" + str(q)
+										else:
+											q = str(sibs).strip()
+											first = False
+								question = q
+								if question == "NOT FOUND":
+									if str(c.previous_element) == '<br/>':
+										prev_elem = c.previous_element
+										while str(prev_elem) == '<br/>':
+											prev_elem = prev_elem.previous_element
+										to_strip = str(prev_elem)
+										for character in replace_chars:
+											if character in to_strip:
+												to_strip = to_strip.replace(character, replace_chars[character])
+										question = to_strip.replace('\t','').replace('\n','').strip()
 
 							if type(c) == Tag:
 								for z in c.contents:
@@ -521,22 +514,49 @@ def scrape_sentence_correction(soup, filename):
 										#splitted = str(z).split("<br>")
 										splitted = re.split(r"(<br>|\t)", str(z))
 										for strng in splitted:
-											if poss in strng and  options["A"] == "NOT FOUND":
+											if poss in strng and options["A"] == "NOT FOUND":
+												if question == "NOT FOUND":
+													first = True
+													q = None
+													for sibs in z.previous_siblings:
+														if str(sibs) != '<br/>':
+															if not first:
+																q = str(sibs).strip() + "\n" + str(q)
+															else:
+																q = str(sibs).strip()
+																first = False
+													if q is not None:
+														question = q
+													else:
+														shitty_qs.append(filename)
+														print("FUCK NO Q AGAIN: {0}".format(filename))
 												options["A"] = strng.replace(poss, '').strip()
+												next_letters = ["B","C","D","E"]
+												possible_brs = ['<br/>', '<br>']
+												if str(z.next_element) in possible_brs:
+													temp_elem = z
+													for letter in next_letters:
+														while(str(temp_elem.next_element) in possible_brs):
+															temp_elem = temp_elem.next_element
+														this_opt = str(temp_elem.next_element)
+														options[letter] = this_opt.replace(poss.replace("A", letter), '').strip()
+														temp_elem = temp_elem.next_element
 
 							else:
 								options["A"] = c.string.replace(poss, '').strip()
 								next_letters = ["B","C","D","E"]
-								if str(c.next_element) == '<br/>':
+								possible_brs = ['<br/>', '<br>']
+								if str(c.next_element) in possible_brs:
 									temp_elem = c
+
 									for letter in next_letters:
-										while(str(temp_elem.next_element) == '<br/>'):
+										while(str(temp_elem.next_element) in possible_brs):
 											temp_elem = temp_elem.next_element
 										this_opt = str(temp_elem.next_element)
 										options[letter] = this_opt.replace(poss.replace("A", letter), '').strip()
 										temp_elem = temp_elem.next_element
 	except TypeError:
-		#print("CHECK THIS SHIT type error: {0}".format(filename))
+		if print_shit: print("CHECK THIS SHIT type error: {0}".format(filename))
 		shitty_qs.append(filename)
 		return
 	result["image"] = False
@@ -572,7 +592,7 @@ def scrape_sentence_correction(soup, filename):
 	to_not_be_not_found = [question, options["A"], options["B"], options["C"], options["D"], options["E"]]
 	if "NOT FOUND" in to_not_be_not_found:
 		shitty_qs.append(filename)
-		#print("CHECK THIS SHIT no q 1 or 2: {0}".format(filename))
+		if print_shit: print("CHECK THIS SHIT no q 1 or 2: {0}; HERE THEY ARE: {1}".format(filename,to_not_be_not_found))
 		return
 	#pprint(result['question'])
 	result['difficulty_percentage'] = difficulty_percentage
@@ -581,6 +601,7 @@ def scrape_sentence_correction(soup, filename):
 	return result
 
 def scrape_file(filename, type):
+	global questions_to_insert
 	assert ".html" in filename
 	import os.path
 	with open ( os.path.join(type, filename), "r" , encoding="utf-8") as myfile:
@@ -601,7 +622,7 @@ def scrape_file(filename, type):
 				this_question = data_sufficiency_questions['question']
 				this_one = data_sufficiency_questions['1']
 				this_two = data_sufficiency_questions['2']
-				if (this_question not in questions_already_in_db and this_question not in other_questions and this_question != "NOT FOUND" and
+				if (this_question not in questions_already_in_db[type] and this_question not in other_questions and this_question != "NOT FOUND" and
 					this_one not in ones_already_in_db and this_one not in other_ones and this_one != "NOT FOUND" and
 					this_two not in twos_already_in_db and this_two not in other_twos and this_two != "NOT FOUND"):
 					questions_to_insert[type].append(data_sufficiency_questions)
@@ -617,11 +638,24 @@ def scrape_file(filename, type):
 			try:
 				other_questions = [d['question'] for d in questions_to_insert[type]]
 				this_question = problem_solving_questions['question']
-				if this_question not in questions_already_in_db and this_question not in other_questions and this_question != "NOT FOUND":
+				if this_question not in questions_already_in_db[type] and this_question not in other_questions and this_question != "NOT FOUND":
 					questions_to_insert[type].append(problem_solving_questions)
 				else:
 					pass
 					#print('question {0} is already in the db!'.format(this_question))
+			finally:
+				questions_lock.release()
+	elif type == "SC":
+		sentence_correction_questions = scrape_sentence_correction(soup, filename)
+		if sentence_correction_questions is not None:
+			questions_lock.acquire()
+			try:
+				other_questions = [d['question'] for d in questions_to_insert[type]]
+				this_question = sentence_correction_questions['question']
+				if this_question not in questions_already_in_db[type] and this_question not in other_questions and this_question != "NOT FOUND":
+					questions_to_insert[type].append(sentence_correction_questions)
+				else:
+					move_file_to(filename, type, "NotDownloaded/{0}".format(type))
 			finally:
 				questions_lock.release()
 
@@ -634,6 +668,8 @@ def get_files_in_db(type):
 			c.execute("SELECT filename FROM DSQuestions")
 		elif type == "PS":
 			c.execute("SELECT filename FROM PSQuestions")
+		elif type == "SC":
+			c.execute("SELECT filename FROM SCQuestions")
 		return c.fetchall()
 
 def get_questions_in_db(type):
@@ -645,6 +681,8 @@ def get_questions_in_db(type):
 			c.execute("SELECT question FROM DSQuestions")
 		elif type == "PS":
 			c.execute("SELECT question FROM PSQuestions")
+		elif type == "SC":
+			c.execute("SELECT question FROM SCQuestions")
 		return c.fetchall()
 
 def get_ones_twos_in_ds():
@@ -675,7 +713,7 @@ def scrape_downloaded_posts(type):
 	for_each_thread = []
 	for i in range(thread_limit):
 		for_each_thread.append([])
-	test_limit = 1000
+	test_limit = 10
 	inserted = 0
 	cur_thread = 0
 	for t in files:
@@ -686,12 +724,13 @@ def scrape_downloaded_posts(type):
 			cur_thread += 1
 			inserted += 1
 			if cur_thread == thread_limit: cur_thread = 0
-		if t in as_array:
-			pass
+		elif t in as_array:
+			move_file_to(t, type, "InsertedQs/{0}".format(type))
 			#update with difficult
-		if t not in downloaded_url_filenames_in_sql and ".html" in t:
-			pass
-			#print("{0} is not in the links dled??".format(t))
+		elif t not in downloaded_url_filenames_in_sql and ".html" in t:
+			move_file_to(t, type, "NotDownloaded/{0}".format(type))
+		else:
+			print("WHAT IS THIS {0}".format(t))
 	print('starting threads')
 
 	for thread in for_each_thread:
@@ -709,12 +748,10 @@ def scrape_forum_post(type, filepath = None):
 	import os
 	if filepath:
 		file = filepath
-		reopen = False
 		with open (filepath, "r", encoding="utf-8") as myfile:
 			try:
 				page=myfile.read()
 			except UnicodeDecodeError:
-				reopen = True
 				print("{0} fucked up decoding".format(filepath))
 	else:
 		print("OOPS")
@@ -744,7 +781,7 @@ def download_forum_post(link, type):
 		filename_to_save = "{0}_{1}.html".format(type,uuid.uuid4())
 	full_filename = os.path.join(type, filename_to_save)
 	import time
-	time.sleep(5) #because ban -> 5 seconds if sleeping, should be enough to not be a bot...
+	time.sleep(sleep_delay) #because ban -> 5 seconds if sleeping, should be enough to not be a bot...
 	try:
 		urlretrieve(link, full_filename)
 	except http.client.BadStatusLine:
@@ -801,93 +838,18 @@ def scrape_forum_index(link, type):
 
 	print ("done downloading!!")
 
-def parse_data_sufficiency_io_posts(dict):
-	quesitons = []
-	for post in dict:
-		result = {}
-		this_url = post['pageUrl']
-		'''
-		result["image"] = False
-		if has_attachment:
-			src = posts.find("div", { "class" : "attachcontent" })
-			#grab attachment
-			import os.path
-			img_name = "{0}-IMG-1.jpg".format(filename.split(".html")[0])
-			if "\DS" not in img_name:
-				image_path = os.path.join("DS", img_name)
-			else:
-				image_path = img_name
-			if not (os.path.isfile(image_path)):
-				print(filename)
-				web_image_path = 'http://gmatclub.com/forum{0}'.format(src.find("img")["src"][1:])
-				req = Request(web_image_path, headers={'User-Agent': 'Mozilla/5.0'})
-				urlretrieve(req, image_path)
-			result["image"] = True
-			result["imagepath"] = image_path
-		#print("{0}: {1}".format(filename,question))
-		text = posts.getText()
-
-		tags = soup.find("div", {"id": "taglist"})
-		result['tags'] = tags.getText().split("\xa0 \xa0")
-		result['post'] = text
-		result['question'] = question
-		result['1'] = one
-		result['2'] = two
-		result['answer'] = answer
-		result['filename'] = filename
-		'''
-		if post['answeroption_value_1'] == '':
-			continue
-		else:
-			post_content = post['itemtext_content']
-			if post_content.find("?") == -1:
-				print(post_content)
-			else:
-				possible_ones = ["(1)"]
-				possible_twos = ["(2)"]
-				answer_start = "[Reveal]"
-				question = post_content[:post_content.find("?")+1]
-				result['question'] = question
-				result['url'] = post['pageUrl']
-				result['1'] = None
-				for one in possible_ones:
-					if result['1'] is not None:
-						break
-					if one in post_content:
-						one_start = post_content.find(one) + len(one)
-						for two in possible_twos:
-							if result['1'] is not None:
-								break
-							if two in post_content:
-								one_end = post_content.find(two)
-								result['1'] = post_content[one_start:one_end].strip()
-								two_start = post_content.find(two) + len(two)
-								two_end = post_content.find(answer_start)
-								result['2'] = post_content[two_start:two_end].strip()
-								print(result['2'])
-
 def move_file_to(filename, original_subdir, final_subdir):
 	dir = os.path.dirname(__file__)
 	file_path = os.path.join(os.path.join(dir, original_subdir), filename)
 	new_path = os.path.join(os.path.join(dir, final_subdir), filename)
 	shutil.move(file_path, new_path)
 
-def scrape_import_io_posts(file, type):
-	dict = []
-	with open(file, encoding="utf-8") as csvfile:
-		reader = csv.DictReader(csvfile)
-		for row in reader:
-			dict.append(row)
-
-	if type == "DS":
-		parse_data_sufficiency_io_posts(dict)
-
 if __name__ == '__main__':
 	skip = False
 	from requests import get
 	print("getting ip")
-	#ip = get('http://api.ipify.org').text
-	#print ('My public ip address is:', ip)
+	ip = get('http://api.ipify.org').text
+	print ('My public ip address is:', ip)
 	files = get_files_in_db("DS")
 	as_array = [filename[0] for filename in files]
 	#print(as_array)
@@ -896,14 +858,14 @@ if __name__ == '__main__':
 		if dlFromForum:
 			already_downloaded_urls = [s[0] for s in get_downloaded_urls()]
 			#for since 2006: for i in range(2500,2400,-50):
-			for i in range(2650,0,-50):
+			for i in range(950,0,-50):
 				'''
 				###DS####
 				link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=222&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
 				scrape_forum_index(link, "DS")
 				import time
 				print('finished {0} now waiting 1 seconds'.format(i))
-				time.sleep(1)
+				time.sleep(sleep_delay)
 
 
 				######PS####
@@ -911,20 +873,33 @@ if __name__ == '__main__':
 				scrape_forum_index(link, "PS")
 				import time
 				print('finished {0} now waiting 5 seconds'.format(i))
-				time.sleep(5)
-				'''
+				time.sleep(sleep_delay)
+
 
 				######SC####
 				#link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=172&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
 				#^ tghat is the hard one do these ones after you get home
-				link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=231&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
+				link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=172&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
 				scrape_forum_index(link, "SC")
 				import time
 				print('finished {0} now waiting 5 seconds'.format(i))
-				time.sleep(5)
-		elif scrape_from_import_io:
-			import_io_file = 'import_io_ds_cleaned.csv'
-			scrape_import_io_posts(import_io_file, "DS")
+				time.sleep(sleep_delay)
+				'''
+
+				#####CR#####
+				#link: http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=168&similar_to_id=0&search_tags=any&search_id=tag&start=2500
+				#link = "http://gmatclub.com/forum/search.php?st=0&sk=t&sd=d&sr=topics&search_id=tag&tag_id=226&similar_to_id=0&search_tags=any&search_id=tag&start=" + str(i)
+				#scrape_forum_index(link, "CR")
+				#import time
+				#print('finished {0} now waiting 5 seconds'.format(i))
+				#time.sleep(sleep_delay)
+
+				###RC Not many RC so just do it all
+				link = "http://gmatclub.com/forum/gmat-reading-comprehension-rc-137/index-{0}.html".format(str(i))
+				scrape_forum_index(link, "RC")
+				import time
+				print('finished {0} now waiting 5 seconds'.format(i))
+				time.sleep(sleep_delay)
 		else:
 			if testFiles:
 				if testOnly is not None:
@@ -955,7 +930,7 @@ if __name__ == '__main__':
 							print("{0}: {1}".format(f,test['answer']))
 			else:
 				print('scraping dl')
-				scrape_downloaded_posts("PS")
+				scrape_downloaded_posts("SC")
 				for q in shitty_qs:
-					move_file_to(q, "PS", "ShittyQs/PS")
+					move_file_to(q, "SC", "ShittyQs/SC")
 					#print(q)
