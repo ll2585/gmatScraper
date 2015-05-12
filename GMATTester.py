@@ -84,6 +84,9 @@ class GMATTester(QtGui.QMainWindow):
 		self.back_to_main_button.clicked.connect(self.end_study)
 		self.end_button = QtGui.QPushButton("Finish and see results")
 		self.end_button.clicked.connect(self.end_study_and_see_results)
+		self.flagged_checkbox = QtGui.QCheckBox("Flag Question")
+
+		self.flagged_checkbox.toggled.connect(self.flag_question)
 		top_bar.addWidget(self.id_label)
 		top_bar.addWidget(self.question_number_label)
 		top_bar.addWidget(self.time_taken)
@@ -92,6 +95,7 @@ class GMATTester(QtGui.QMainWindow):
 		top_bar.addWidget(self.new_question_button)
 		top_bar.addWidget(self.back_to_main_button)
 		top_bar.addWidget(self.end_button)
+		top_bar.addWidget(self.flagged_checkbox)
 
 		layout.addLayout(top_bar)
 		middle_bar = QtGui.QVBoxLayout()
@@ -136,12 +140,123 @@ class GMATTester(QtGui.QMainWindow):
 		self.setCentralWidget(questions_widget)
 		self.show_question()
 
+	def flag_question(self):
+		self.presenter.flag_question(self.flagged_checkbox.isChecked())
+
 	def end_study(self):
 		self.timer.stop()
+		self.presenter.end_study(False)
 		self.setUp()
 
+	def display_question_panel(self):
+		self.presenter.show_question_results(self.answered_questions.currentRow())
+
+	def show_results(self, results):
+
+		results_widget = QtGui.QWidget()
+		layout = QtGui.QHBoxLayout()
+
+		left_bar = QtGui.QVBoxLayout()
+		self.right_answers = QtGui.QLabel()
+		self.time_taken = QtGui.QLabel()
+		self.answered_questions = QtGui.QListWidget()
+		self.answered_questions.itemClicked.connect(self.display_question_panel)
+		total_right = 0
+		total_qs = 0
+		total_m = 0
+		total_s = 0
+		for q in results:
+			total_m += q["time_taken"][0]
+			total_s += q["time_taken"][1]
+			total_qs += 1
+			right_answer = q['my_answer'] == q['right_answer']
+			total_right += 1 if right_answer else 0
+			item = QtGui.QListWidgetItem("{0} - {1} - {2} - {3:02d}:{4:02d}".format(q['type'],str(q['id']), "RIGHT" if right_answer else "WRONG", q["time_taken"][0],q["time_taken"][1]))
+			item.setBackgroundColor(QtCore.Qt.green if right_answer else QtCore.Qt.red)
+			self.answered_questions.addItem(item)
+		import math
+		total_m += math.floor(total_s / 60)
+		total_s = total_s % 60
+		self.time_taken.setText("Time Taken: {0} minutes {1} seconds".format(total_m,total_s))
+		self.right_answers.setText("Total Score: {0}/{1}".format(str(total_right),str(total_qs)))
+		left_bar.addWidget(self.time_taken)
+		left_bar.addWidget(self.right_answers)
+		left_bar.addWidget(self.answered_questions)
+
+		layout.addLayout(left_bar)
+		middle_layout = QtGui.QVBoxLayout()
+		top_bar = QtGui.QHBoxLayout()
+		self.id_label = QtGui.QLabel()
+		self.question_number_label = QtGui.QLabel()
+		self.time_taken = QtGui.QLabel()
+		self.m = 0
+		self.s = 0
+		self.timer = QtCore.QTimer(self)
+		self.timer.timeout.connect(self.update_time)
+
+		self.difficulty_label = QtGui.QLabel()
+		self.number_correct_label = QtGui.QLabel()
+		self.back_to_main_button = QtGui.QPushButton("End")
+		self.back_to_main_button.clicked.connect(self.end_study)
+
+		self.flagged_checkbox = QtGui.QCheckBox("Flag Question")
+
+		self.flagged_checkbox.toggled.connect(self.flag_question)
+		top_bar.addWidget(self.id_label)
+		top_bar.addWidget(self.question_number_label)
+		top_bar.addWidget(self.time_taken)
+		top_bar.addWidget(self.difficulty_label)
+		top_bar.addWidget(self.number_correct_label)
+		top_bar.addWidget(self.back_to_main_button)
+		top_bar.addWidget(self.flagged_checkbox)
+
+		middle_layout.addLayout(top_bar)
+
+		question_layout = QtGui.QVBoxLayout()
+		self.question_image = QtGui.QLabel()
+		self.question = QtGui.QLabel()
+		self.question.setWordWrap(True)
+		self.question.setSizePolicy(QtGui.QSizePolicy.Minimum, QtGui.QSizePolicy.Minimum)
+		self.a = QtGui.QRadioButton()
+		self.b = QtGui.QRadioButton()
+		self.c = QtGui.QRadioButton()
+		self.d = QtGui.QRadioButton()
+		self.e = QtGui.QRadioButton()
+
+
+
+
+		self.submit_answer_button = QtGui.QPushButton("Submit Answer")
+		self.submit_answer_button.setVisible(False)
+		self.submit_answer_button.clicked.connect(self.submit_answer)
+
+		self.next_question_button = QtGui.QPushButton("Next")
+		self.next_question_button.setVisible(False)
+		self.next_question_button.clicked.connect(self.show_question)
+
+		question_layout.setAlignment(QtCore.Qt.AlignTop)
+		question_layout.addWidget(self.question_image)
+
+		question_layout.addWidget(self.question)
+
+		self.answer_widget_group = QtGui.QButtonGroup()
+		self.answer_widgets = [self.a, self.b, self.c, self.d, self.e]
+		for widget in self.answer_widgets:
+			widget.toggled.connect(self.checked_answer)
+			widget.setVisible(False)
+			question_layout.addWidget(widget)
+			self.answer_widget_group.addButton(widget)
+		question_layout.addWidget(self.submit_answer_button)
+		question_layout.addWidget(self.next_question_button)
+
+		middle_layout.addLayout(question_layout)
+		layout.addLayout(middle_layout)
+		results_widget.setLayout(layout)
+		self.setCentralWidget(results_widget)
+
 	def end_study_and_see_results(self):
-		self.presenter.end_study()
+		self.timer.stop()
+		self.presenter.end_study(True)
 
 	def show_question(self):
 		self.reset_question()
@@ -174,6 +289,9 @@ class GMATTester(QtGui.QMainWindow):
 		self.answer_widget_group.setExclusive(True)
 		self.reset_timer()
 
+	def toggle_question_flagged(self, flagged):
+		self.flagged_checkbox.setChecked(flagged)
+
 	def reset_timer(self):
 		self.timer.stop()
 
@@ -192,11 +310,10 @@ class GMATTester(QtGui.QMainWindow):
 				self.submit_answer_button.setVisible(True)
 				break
 
-	def update_main_question(self, question, answers, difficulties, id, image):
+	def update_main_question(self, question, answers, difficulties, id, image, answer_result):
 		if image['has_image']:
 			import os
 			question_image = QtGui.QPixmap(os.path.join(os.path.dirname(os.path.realpath(__file__)), image['image_path']))
-			print(os.path.join(os.path.dirname(os.path.realpath(__file__)), image['image_path']))
 			self.question_image.setVisible(True)
 			self.question_image.setPixmap(question_image)
 			self.question_image.show()
@@ -208,6 +325,24 @@ class GMATTester(QtGui.QMainWindow):
 		for i in range(0, len(self.answer_widgets)):
 			self.answer_widgets[i].setVisible(True)
 			self.answer_widgets[i].setText("{0} {1}".format(answer_labels[i], answers[i]))
+		if answer_result is not None:
+			self.reset_question()
+			my_answer = answer_result["my_answer"]
+			right_answer = answer_result["right_answer"]
+			for i in range(0, len(self.answer_widgets)):
+				if right_answer in answer_labels[i]:
+					self.answer_widgets[i].setStyleSheet("* {background-color: rgb(0, 255, 0);}")
+				if my_answer in answer_labels[i]:
+					if my_answer != right_answer:
+						self.answer_widgets[i].setStyleSheet("* {background-color: rgb(255, 0, 0);}")
+					self.answer_widgets[i].setChecked(True)
+					self.submit_answer_button.setVisible(False)
+				self.answer_widgets[i].setDisabled(True)
+			m = answer_result["time_taken"][0]
+			s = answer_result["time_taken"][1]
+			time = "{0:02d}:{1:02d}".format(m,s)
+			self.time_taken.setText(time)
+
 
 	def test(self):
 		pass

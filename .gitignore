@@ -1,6 +1,7 @@
 *.html
 *.jpg
 b_files/*
+OLD/
 
 ### Python template
 # Byte-compiled / optimized / DLL files
