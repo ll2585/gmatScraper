@@ -57,7 +57,7 @@ class GMATTesterModel():
 				flagged= d[13] is not None
 			)
 			ds_questions.append(this_question)
-			self.possible_questions["DS"][d[0]] = d
+			self.possible_questions["DS"][d[0]] = this_question
 		ds_questions = sorted(ds_questions, key=lambda  q: (q.difficulty_bin_1,1-float(q.difficulty_bin_2.strip('%'))/100))
 		self.question_ids["DS"] = ds_questions
 
@@ -76,7 +76,7 @@ class GMATTesterModel():
 				flagged= d[16] is not None
 			)
 			ps_questions.append(this_question)
-			self.possible_questions["PS"][d[0]] = d
+			self.possible_questions["PS"][d[0]] = this_question
 		self.question_ids["PS"] = ps_questions
 
 
@@ -99,8 +99,8 @@ class GMATTesterModel():
 	def get_my_answer_for_row(self, row):
 		question_type = self.answered_questions[row]["type"]
 		question_id = self.answered_questions[row]["id"]
-		question = self.question_ids[question_type][question_id]
-		return {"id": question.id,
+		question = self.possible_questions[question_type][question_id]
+		q = {"id": question.id,
 		        "question" : question.question,
 		        "a": question.answers[0],
 		        "b": question.answers[1],
@@ -116,6 +116,7 @@ class GMATTesterModel():
 		                          "time_taken": self.answered_questions[row]["time_taken"],
 		                          "right_answer": self.answered_questions[row]["right_answer"]}
 		        }
+		return q
 
 	def reset(self):
 		self.possible_questions = {
