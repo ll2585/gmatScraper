@@ -13,8 +13,8 @@ import http.client
 
 sleep_delay = 1
 dlFromForum = False
-testFiles = False
-testOnly =  8
+testFiles = True
+testOnly =  13
 sql_lock = threading.Lock()
 questions_lock = threading.Lock()
 questions_to_insert = {
@@ -952,6 +952,8 @@ def scrape_forum_post(type, filepath = None):
 		return scrape_problem_solving(soup, file)
 	elif type == "SC":
 		return scrape_sentence_correction(soup, file)
+	elif type == "CR":
+		return scrape_critical_reading(soup, file)
 
 def insert_into_sql_downloaded_links():
 	print("updating sql with downloaded links")
@@ -1110,7 +1112,7 @@ if __name__ == '__main__':
 					files = listdir('.')
 					for f in files:
 						if "bs" in f:
-							test= scrape_forum_post("SC", filepath = f)
+							test= scrape_forum_post("CR", filepath = f)
 							print("{0}: {1}".format(f,test['question']))
 							print("{0}: {1}".format(f,test['A']))
 							print("{0}: {1}".format(f,test['B']))

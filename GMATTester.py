@@ -32,17 +32,68 @@ class GMATTester(QtGui.QMainWindow):
 		self.question_group_box = QtGui.QGroupBox("Select Questions")
 
 		self.question_group_layout = QtGui.QVBoxLayout()
+		quantitative_label = QtGui.QLabel("<b>Quantitative</b>")
 		self.PS_checkbox = QtGui.QCheckBox("Problem Solving")
 		self.DS_checkbox = QtGui.QCheckBox("Data Sufficiency")
-		self.PS_checkbox.setChecked(True)
+		verbal_label = QtGui.QLabel("<b>Verbal</b>")
+		self.SC_checkbox = QtGui.QCheckBox("Sentence Correction")
+		self.CR_checkbox = QtGui.QCheckBox("Critical Reading")
+		self.RC_checkbox = QtGui.QCheckBox("Reading Comprehension")
+		self.PS_checkbox.setChecked(False)
+		self.DS_checkbox.setChecked(False)
+		self.SC_checkbox.setChecked(True)
+		self.CR_checkbox.setChecked(False)
+		self.RC_checkbox.setChecked(False)
+		self.question_group_layout.addWidget(quantitative_label)
 		self.question_group_layout.addWidget(self.PS_checkbox)
 		self.question_group_layout.addWidget(self.DS_checkbox)
+		self.question_group_layout.addWidget(verbal_label)
+		self.question_group_layout.addWidget(self.SC_checkbox)
+		self.question_group_layout.addWidget(self.CR_checkbox)
+		self.question_group_layout.addWidget(self.RC_checkbox)
 		self.question_group_box.setLayout(self.question_group_layout)
 
 		self.options_group_box = QtGui.QGroupBox("Options")
 		self.options_group_layout = QtGui.QVBoxLayout()
 		self.show_answer_immediately = QtGui.QCheckBox("Show Answer Immediately")
+		self.store_answers = QtGui.QCheckBox("Store Answers")
+		self.store_answers.setChecked(True)
+		self.only_unanswered_questions = QtGui.QCheckBox("Only Unanswered Questions")
+		self.only_answered_questions = QtGui.QCheckBox("Only Answered Questions")
+		self.only_wrong_questions = QtGui.QCheckBox("Only Wrongly Questions")
+		self.only_right_questions = QtGui.QCheckBox("Only Right Questions")
+		self.show_answered_stats = QtGui.QCheckBox("Show Stats on Answered Questions")
+		options_form = QtGui.QFormLayout()
+		self.number_of_questions = QtGui.QLineEdit()
+		self.number_of_questions.setValidator(QtGui.QIntValidator(1,99999))
+		options_form.addRow("# Questions (blank for infinite): ", self.number_of_questions)
+		self.minimum_difficulty = QtGui.QLineEdit()
+		self.minimum_difficulty.setValidator(QtGui.QIntValidator(1,100))
+		options_form.addRow("Min Difficulty (blank for None): ", self.minimum_difficulty)
+		self.maximum_difficulty = QtGui.QLineEdit()
+		self.maximum_difficulty.setValidator(QtGui.QIntValidator(1,100))
+		options_form.addRow("Max Difficulty (blank for None): ", self.maximum_difficulty)
+		self.minimum_percentage = QtGui.QLineEdit()
+		self.minimum_percentage.setValidator(QtGui.QIntValidator(1,100))
+		options_form.addRow("Min % Right (blank for None): ", self.minimum_percentage)
+		self.maximum_percentage = QtGui.QLineEdit()
+		self.maximum_percentage.setValidator(QtGui.QIntValidator(1,100))
+		options_form.addRow("Max % Right (blank for None): ", self.maximum_percentage)
+		self.minimum_sessions = QtGui.QLineEdit()
+		self.minimum_sessions.setValidator(QtGui.QIntValidator(1,100))
+		options_form.addRow("Min Sessions (blank for None): ", self.minimum_sessions)
+		self.maximum_sessions = QtGui.QLineEdit()
+		self.maximum_sessions.setValidator(QtGui.QIntValidator(1,100))
+		options_form.addRow("Max Sessions (blank for None): ", self.maximum_sessions)
+		self.options_group_layout.addLayout(options_form)
 		self.options_group_layout.addWidget(self.show_answer_immediately)
+		self.options_group_layout.addWidget(self.store_answers)
+		self.options_group_layout.addWidget(self.only_unanswered_questions)
+		self.options_group_layout.addWidget(self.only_answered_questions)
+		self.options_group_layout.addWidget(self.only_wrong_questions)
+		self.options_group_layout.addWidget(self.only_right_questions)
+		self.options_group_layout.addWidget(self.show_answered_stats)
+
 		self.options_group_box.setLayout(self.options_group_layout)
 
 		self.start_study_button = QtGui.QPushButton('Start', self)
@@ -59,9 +110,24 @@ class GMATTester(QtGui.QMainWindow):
 
 	def start_study(self):
 		self.settings["show_answer_immediately"] = self.show_answer_immediately.isChecked()
+		self.settings["num_questions"] = self.number_of_questions.text()
+		self.settings["min_difficulty"] = self.minimum_difficulty.text()
+		self.settings["max_difficulty"] = self.maximum_difficulty.text()
+		self.settings["min_percentage"] = self.minimum_percentage.text()
+		self.settings["max_percentage"] = self.maximum_percentage.text()
+		self.settings["min_sessions"] = self.minimum_sessions.text()
+		self.settings["max_sessions"] = self.maximum_sessions.text()
+		self.settings["store_answers"] = self.store_answers.isChecked()
+		self.settings["only_unanswered"] = self.only_unanswered_questions.isChecked()
+		self.settings["only_answered"] = self.only_answered_questions.isChecked()
+		self.settings["only_wrong"] = self.only_wrong_questions.isChecked()
+		self.settings["only_right"] = self.only_right_questions.isChecked()
+		self.settings["show_stats"] = self.show_answered_stats.isChecked()
+
 		self.settings["questions_to_get"] = {
 			"DS": self.DS_checkbox.isChecked(),
 		    "PS": self.PS_checkbox.isChecked(),
+		    "SC": self.SC_checkbox.isChecked(),
 		}
 		self.presenter.start_study(self.settings)
 		questions_widget = QtGui.QWidget()
@@ -213,6 +279,7 @@ class GMATTester(QtGui.QMainWindow):
 		middle_layout.addLayout(top_bar)
 
 		question_layout = QtGui.QVBoxLayout()
+		question_layout.addWidget(self.question_number_label)
 		self.question_image = QtGui.QLabel()
 		self.question = QtGui.QLabel()
 		self.question.setWordWrap(True)
@@ -260,8 +327,11 @@ class GMATTester(QtGui.QMainWindow):
 
 	def show_question(self):
 		self.reset_question()
-		self.presenter.show_question()
-		self.timer.start(1000)
+		if self.question_number_label.text() == "{0}/{0}".format(self.settings["num_questions"]):
+			self.end_study_and_see_results()
+		else:
+			self.presenter.show_question()
+			self.timer.start(1000)
 
 	def update_time(self):
 		if self.s < 59:
@@ -310,21 +380,27 @@ class GMATTester(QtGui.QMainWindow):
 				self.submit_answer_button.setVisible(True)
 				break
 
-	def update_main_question(self, question, answers, difficulties, id, image, answer_result):
-		if image['has_image']:
+	def update_main_question(self, question, answer_result):
+		if question['has_image']:
 			import os
-			question_image = QtGui.QPixmap(os.path.join(os.path.dirname(os.path.realpath(__file__)), image['image_path']))
+			question_image = QtGui.QPixmap(os.path.join(os.path.dirname(os.path.realpath(__file__)), question['image_path']))
 			self.question_image.setVisible(True)
 			self.question_image.setPixmap(question_image)
 			self.question_image.show()
-		self.question.setText(question)
-		self.id_label.setText("ID: {0}".format(id))
-		self.difficulty_label.setText("Difficulty: {0}".format(difficulties["difficulty"]))
-		self.number_correct_label.setText("Percentage Correct: {0}".format(difficulties["number_correct"]))
+		self.question.setText(question["question"])
+		self.settings["num_questions"] = question["max_questions"] if self.settings["num_questions"] == ""  or self.settings["num_questions"] > question["max_questions"] else self.settings["num_questions"]
+		self.question_number_label.setText("{0}/{1}".format(question["question_number"], self.settings["num_questions"]))
+		if self.question_number_label.text() == "{0}/{0}".format(self.settings["num_questions"]) and not answer_result:
+			self.next_question_button.setDisabled(True)
+			self.new_question_button.setDisabled(True)
+		self.id_label.setText("ID: {0}".format(question["id"]))
+		self.difficulty_label.setText("Difficulty: {0}".format(question["difficulty"]))
+		self.number_correct_label.setText("Percentage Correct: {0}".format(question["number_correct"]))
 		answer_labels = ["(A)", "(B)", "(C)", "(D)", "(E)"]
+		letters = ["a", "b", "c", "d", "e"]
 		for i in range(0, len(self.answer_widgets)):
 			self.answer_widgets[i].setVisible(True)
-			self.answer_widgets[i].setText("{0} {1}".format(answer_labels[i], answers[i]))
+			self.answer_widgets[i].setText("{0} {1}".format(answer_labels[i], question[letters[i]]))
 		if answer_result is not None:
 			self.reset_question()
 			my_answer = answer_result["my_answer"]
