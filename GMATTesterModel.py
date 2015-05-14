@@ -58,6 +58,8 @@ class GMATTesterModel():
 			ps_qs = c.fetchall()
 			c.execute("SELECT * FROM SCQuestions") #do the others later too
 			sc_qs = c.fetchall()
+			c.execute("SELECT * FROM CRQuestions") #do the others later too
+			cr_qs = c.fetchall()
 		for d in ds_qs:
 			this_question = Question(
 				id = d[0],
@@ -126,6 +128,24 @@ class GMATTesterModel():
 			sc_questions.append(this_question)
 			self.possible_questions["SC"][d[0]] = this_question
 		self.question_ids["SC"] = sc_questions
+
+		for d in cr_qs:
+			this_question = Question(
+				id = d[0],
+				question = d[2],
+				source = d[12],
+				answers = [d[3],d[4],d[5],d[6],d[7]],
+				answer = d[8],
+				explanation = d[12],
+				difficulty_bin_1 = d[13],
+				difficulty_bin_2 = d[14],
+				image = d[11],
+				type = "CR",
+				flagged= d[16] is not None
+			)
+			cr_questions.append(this_question)
+			self.possible_questions["CR"][d[0]] = this_question
+		self.question_ids["CR"] = cr_questions
 
 
 	def answer_question(self, answer, time_taken):
@@ -293,7 +313,9 @@ class GMATTesterModel():
 			arr = self.flagged_questions["SC"]
 			question_mark_array = "({0})".format(",".join("?"*len(arr)))
 			c.execute("UPDATE SCQuestions SET flagforedit = 1 WHERE id in " + question_mark_array, tuple(arr)) #do the others later too
-
+			arr = self.flagged_questions["CR"]
+			question_mark_array = "({0})".format(",".join("?"*len(arr)))
+			c.execute("UPDATE CRQuestions SET flagforedit = 1 WHERE id in " + question_mark_array, tuple(arr)) #do the others later too
 
 	def set_settings(self, settings):
 		self.settings = settings

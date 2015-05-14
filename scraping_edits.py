@@ -113,7 +113,7 @@ def scrape_image_ps():
 def fix_sc_breaks():
 	filenames = []
 	q_type = "InsertedQs\SC"
-	rescrape_text = "new_sc.txt"
+	rescrape_text = "sc_2.txt"
 	with open (rescrape_text, "r" , encoding="utf-8") as myfile:
 		for f in myfile.readlines():
 			filenames.append(f.replace('"','').strip())
@@ -127,16 +127,16 @@ def fix_sc_breaks():
 				return
 		soup = BeautifulSoup(page)
 		letters = ["A", "B", "C", "D", "E"]
-		all_as = ["(A).", "(A)", "A.)", "* (A)", "A."]
+		all_as = ["(A).", "(A)", "A.)", "* (A)", "A.","a)","a. "]
 		all_bs = []
 		all_cs = []
 		all_ds = []
 		all_es = []
 		for a in all_as:
-			all_bs.append(a.replace("A","B"))
-			all_cs.append(a.replace("A","C"))
-			all_ds.append(a.replace("A","D"))
-			all_es.append(a.replace("A","E"))
+			all_bs.append(a.replace("A","B").replace("a","b"))
+			all_cs.append(a.replace("A","C").replace("a","c"))
+			all_ds.append(a.replace("A","D").replace("a","d"))
+			all_es.append(a.replace("A","E").replace("a","e"))
 		all_arrs = [all_as, all_bs, all_cs, all_ds, all_es]
 		temp = soup.find("div", {"class": "item text"})
 		found_arr = [False] * len(letters)
@@ -152,6 +152,8 @@ def fix_sc_breaks():
 			if cur_index < len(all_arrs):
 				for a in all_arrs[cur_index]:
 					check_for = str(t).strip()
+					if f == 'SC_277416db-2a51-4fd8-8c42-666fce0ffbbd.html':
+						print(a,check_for[:len(a)],a==check_for[:len(a)])
 					if a == check_for[:len(a)]:
 						found_arr[cur_index] = True
 						options[cur_index] += check_for[len(a):].replace("<br/>"," ").replace("\t","").replace("  ", " ").strip()
@@ -169,7 +171,7 @@ def fix_sc_breaks():
 		if not found_arr[0]:
 			print(f)
 		print(f,options[4])
-
+		'''
 		conn = sqlite3.connect('db.db')
 		with conn:
 			c = conn.cursor()
@@ -178,5 +180,6 @@ def fix_sc_breaks():
 			c.execute('UPDATE SCQuestions SET C = ? WHERE filename = ?', (options[2],f))
 			c.execute('UPDATE SCQuestions SET D = ? WHERE filename = ?', (options[3],f))
 			c.execute('UPDATE SCQuestions SET E = ? WHERE filename = ?', (options[4],f))
+		'''
 
 fix_sc_breaks()

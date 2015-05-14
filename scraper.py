@@ -13,7 +13,7 @@ import http.client
 
 sleep_delay = 1
 dlFromForum = False
-testFiles = True
+testFiles = False
 testOnly =  13
 sql_lock = threading.Lock()
 questions_lock = threading.Lock()
@@ -69,6 +69,9 @@ def insert_questions_into_sql():
 				elif type == "SC":
 					to_tuple = [(dict["filename"], dict["question"], dict["A"], dict["B"], dict["C"], dict["D"], dict["E"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else "", dict['difficulty_percentage'], dict['question_percentage'],dict['sessions'],dict['url']) for dict in questions_to_insert[type]]
 					c.executemany('INSERT INTO SCQuestions("filename", "question", "A", "B", "C", "D", "E", "answer", "tags", "post", "imagepath", "difficulty_percentage", "question_percentage", "sessions","url") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', to_tuple)
+				elif type == "CR":
+					to_tuple = [(dict["filename"], dict["question"], dict["A"], dict["B"], dict["C"], dict["D"], dict["E"], dict["answer"], json.dumps(dict["tags"]), dict["post"],  dict["imagepath"] if dict["image"] else "", dict['difficulty_percentage'], dict['question_percentage'],dict['sessions'],dict['url']) for dict in questions_to_insert[type]]
+					c.executemany('INSERT INTO CRQuestions("filename", "question", "A", "B", "C", "D", "E", "answer", "tags", "post", "imagepath", "difficulty_percentage", "question_percentage", "sessions","url") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', to_tuple)
 
 	print(questions_to_insert)
 
@@ -602,7 +605,7 @@ def scrape_sentence_correction(soup, filename):
 
 def scrape_critical_reading(soup, filename):
 	global shitty_qs
-	print_shit = False
+	print_shit = True
 
 	possible_A = ["A.", "(A)", "A)"]
 	result = {}
@@ -845,9 +848,26 @@ def scrape_file(filename, type):
 				if this_question not in questions_already_in_db[type] and this_question not in other_questions and this_question != "NOT FOUND":
 					questions_to_insert[type].append(sentence_correction_questions)
 				else:
+
 					move_file_to(filename, type, "NotDownloaded/{0}".format(type))
 			finally:
 				questions_lock.release()
+	elif type == "CR":
+		critical_reading_questions = scrape_critical_reading(soup, filename)
+		if critical_reading_questions is not None:
+			questions_lock.acquire()
+			try:
+				print(filename,3)
+				other_questions = [d['question'] for d in questions_to_insert[type]]
+				this_question = critical_reading_questions['question']
+				if this_question not in questions_already_in_db[type] and this_question not in other_questions and this_question != "NOT FOUND":
+					questions_to_insert[type].append(critical_reading_questions)
+				else:
+					move_file_to(filename, type, "NotDownloaded/{0}".format(type))
+			finally:
+				questions_lock.release()
+		else:
+			move_file_to(filename, type, "NotDownloaded/{0}".format(type))
 
 def get_files_in_db(type):
 	#filename, question, one, two, answer, tags, post, imagepath
@@ -860,6 +880,8 @@ def get_files_in_db(type):
 			c.execute("SELECT filename FROM PSQuestions")
 		elif type == "SC":
 			c.execute("SELECT filename FROM SCQuestions")
+		elif type == "CR":
+			c.execute("SELECT filename FROM CRQuestions")
 		return c.fetchall()
 
 def get_questions_in_db(type):
@@ -873,6 +895,8 @@ def get_questions_in_db(type):
 			c.execute("SELECT question FROM PSQuestions")
 		elif type == "SC":
 			c.execute("SELECT question FROM SCQuestions")
+		elif type == "CR":
+			c.execute("SELECT question FROM CRQuestions")
 		return c.fetchall()
 
 def get_ones_twos_in_ds():
@@ -903,7 +927,7 @@ def scrape_downloaded_posts(type):
 	for_each_thread = []
 	for i in range(thread_limit):
 		for_each_thread.append([])
-	test_limit = 10
+	test_limit = 800
 	inserted = 0
 	cur_thread = 0
 	for t in files:
@@ -918,6 +942,7 @@ def scrape_downloaded_posts(type):
 			move_file_to(t, type, "InsertedQs/{0}".format(type))
 			#update with difficult
 		elif t not in downloaded_url_filenames_in_sql and ".html" in t:
+
 			move_file_to(t, type, "NotDownloaded/{0}".format(type))
 		else:
 			print("WHAT IS THIS {0}".format(t))
@@ -1034,7 +1059,10 @@ def move_file_to(filename, original_subdir, final_subdir):
 	dir = os.path.dirname(__file__)
 	file_path = os.path.join(os.path.join(dir, original_subdir), filename)
 	new_path = os.path.join(os.path.join(dir, final_subdir), filename)
-	shutil.move(file_path, new_path)
+	try:
+		shutil.move(file_path, new_path)
+	except FileNotFoundError:
+		print("error at ",file_path)
 
 if __name__ == '__main__':
 	skip = False
@@ -1122,7 +1150,8 @@ if __name__ == '__main__':
 							print("{0}: {1}".format(f,test['answer']))
 			else:
 				print('scraping dl')
-				scrape_downloaded_posts("SC")
+				scrape_downloaded_posts("CR")
 				for q in shitty_qs:
-					move_file_to(q, "SC", "ShittyQs/SC")
+					print(4)
+					move_file_to(q, "CR", "ShittyQs/CR")
 					#print(q)

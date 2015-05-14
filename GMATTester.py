@@ -128,6 +128,7 @@ class GMATTester(QtGui.QMainWindow):
 			"DS": self.DS_checkbox.isChecked(),
 		    "PS": self.PS_checkbox.isChecked(),
 		    "SC": self.SC_checkbox.isChecked(),
+		    "CR": self.CR_checkbox.isChecked(),
 		}
 		self.presenter.start_study(self.settings)
 		questions_widget = QtGui.QWidget()
