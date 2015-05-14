@@ -24,6 +24,14 @@ class GMATTester(QtGui.QMainWindow):
 		self.mainPanel.setLayout(layout)
 		self.setCentralWidget(self.mainPanel)
 
+	def disable_answered_checkboxes(self, is_toggled):
+		answered_checkboxes = [self.only_wrong_questions, self.only_right_questions, self.show_answered_stats]
+		for checkbox in answered_checkboxes:
+			checkbox.setDisabled(is_toggled)
+			if is_toggled: checkbox.setChecked(False)
+		self.min_right.setDisabled(is_toggled)
+		self.min_wrong.setDisabled(is_toggled)
+
 	def study(self):
 		self.settings = {}
 		settings_widget = QtGui.QWidget()
@@ -63,6 +71,7 @@ class GMATTester(QtGui.QMainWindow):
 		self.only_wrong_questions = QtGui.QCheckBox("Only Wrongly Questions")
 		self.only_right_questions = QtGui.QCheckBox("Only Right Questions")
 		self.show_answered_stats = QtGui.QCheckBox("Show Stats on Answered Questions")
+		self.only_unanswered_questions.toggled.connect(self.disable_answered_checkboxes)
 		options_form = QtGui.QFormLayout()
 		self.number_of_questions = QtGui.QLineEdit()
 		self.number_of_questions.setValidator(QtGui.QIntValidator(1,99999))
@@ -85,6 +94,12 @@ class GMATTester(QtGui.QMainWindow):
 		self.maximum_sessions = QtGui.QLineEdit()
 		self.maximum_sessions.setValidator(QtGui.QIntValidator(1,100))
 		options_form.addRow("Max Sessions (blank for None): ", self.maximum_sessions)
+		self.min_wrong = QtGui.QLineEdit()
+		self.min_wrong.setValidator(QtGui.QIntValidator(0,99999))
+		options_form.addRow("Minimum times wrong: ", self.min_wrong)
+		self.min_right = QtGui.QLineEdit()
+		self.min_right.setValidator(QtGui.QIntValidator(0,99999))
+		options_form.addRow("Minimum times right: ", self.min_right)
 		self.options_group_layout.addLayout(options_form)
 		self.options_group_layout.addWidget(self.show_answer_immediately)
 		self.options_group_layout.addWidget(self.store_answers)
@@ -110,20 +125,22 @@ class GMATTester(QtGui.QMainWindow):
 
 	def start_study(self):
 		self.settings["show_answer_immediately"] = self.show_answer_immediately.isChecked()
-		self.settings["num_questions"] = self.number_of_questions.text()
-		self.settings["min_difficulty"] = self.minimum_difficulty.text()
-		self.settings["max_difficulty"] = self.maximum_difficulty.text()
-		self.settings["min_percentage"] = self.minimum_percentage.text()
-		self.settings["max_percentage"] = self.maximum_percentage.text()
-		self.settings["min_sessions"] = self.minimum_sessions.text()
-		self.settings["max_sessions"] = self.maximum_sessions.text()
+		self.settings["num_questions"] = '' if self.number_of_questions.text() == '' else int(self.number_of_questions.text())
+		self.settings["min_difficulty"] = '' if self.minimum_difficulty.text() == '' else int(self.minimum_difficulty.text())
+		self.settings["max_difficulty"] = '' if self.maximum_difficulty.text() == '' else int(self.maximum_difficulty.text())
+		self.settings["min_percentage"] = '' if self.minimum_percentage.text() == '' else int(self.minimum_percentage.text())
+		self.settings["max_percentage"] = '' if self.maximum_percentage.text() == '' else int(self.maximum_percentage.text())
+		self.settings["min_sessions"] = '' if self.minimum_sessions.text() == '' else int(self.minimum_sessions.text())
+		self.settings["max_sessions"] = '' if self.maximum_sessions.text() == '' else int(self.maximum_sessions.text())
 		self.settings["store_answers"] = self.store_answers.isChecked()
 		self.settings["only_unanswered"] = self.only_unanswered_questions.isChecked()
 		self.settings["only_answered"] = self.only_answered_questions.isChecked()
 		self.settings["only_wrong"] = self.only_wrong_questions.isChecked()
 		self.settings["only_right"] = self.only_right_questions.isChecked()
 		self.settings["show_stats"] = self.show_answered_stats.isChecked()
-
+		self.settings["min_wrong"] = '' if self.min_wrong.text() == '' else int(self.min_wrong.text())
+		self.settings["min_right"] = '' if self.min_right.text() == '' else int(self.min_right.text())
+		print(self.settings["min_right"])
 		self.settings["questions_to_get"] = {
 			"DS": self.DS_checkbox.isChecked(),
 		    "PS": self.PS_checkbox.isChecked(),

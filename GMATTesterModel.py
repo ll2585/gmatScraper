@@ -274,17 +274,17 @@ class GMATTesterModel():
 				else:
 					for possible_q in self.question_ids[type]:
 						add = True
-						add = add and (self.settings["min_difficulty"] == '' or int(self.settings["min_difficulty"]) <= possible_q.get_difficulty())
+						add = add and (self.settings["min_difficulty"] == '' or self.settings["min_difficulty"] <= possible_q.get_difficulty())
 						if not add: continue
-						add = add and (self.settings["max_difficulty"] == '' or int(self.settings["max_difficulty"]) >= possible_q.get_difficulty())
+						add = add and (self.settings["max_difficulty"] == '' or self.settings["max_difficulty"] >= possible_q.get_difficulty())
 						if not add: continue
-						add = add and (self.settings["min_percentage"] == '' or int(self.settings["min_percentage"]) <= possible_q.get_percentage_correct())
+						add = add and (self.settings["min_percentage"] == '' or self.settings["min_percentage"] <= possible_q.get_percentage_correct())
 						if not add: continue
-						add = add and (self.settings["max_percentage"] == '' or int(self.settings["max_percentage"]) >= possible_q.get_percentage_correct())
+						add = add and (self.settings["max_percentage"] == '' or self.settings["max_percentage"] >= possible_q.get_percentage_correct())
 						if not add: continue
-						add = add and (self.settings["min_sessions"] == '' or int(self.settings["min_sessions"]) <= possible_q.sessions)
+						add = add and (self.settings["min_sessions"] == '' or self.settings["min_sessions"] <= possible_q.sessions)
 						if not add: continue
-						add = add and (self.settings["max_sessions"] == '' or int(self.settings["max_sessions"]) >= possible_q.sessions)
+						add = add and (self.settings["max_sessions"] == '' or self.settings["max_sessions"] >= possible_q.sessions)
 						if not add: continue
 
 						if limit_based_on_answered_questions:
@@ -297,10 +297,15 @@ class GMATTesterModel():
 							if not add: continue
 							add = add and (not self.settings["only_right"] or (self.settings["only_right"] and possible_q.answered and possible_q.answered_right))
 							if not add: continue
+							add = add and (self.settings["min_right"] == '' or (self.settings["min_right"] != '' and possible_q.answered and possible_q.times_right >= self.settings["min_right"] ))
+							if not add: continue
+							add = add and (self.settings["min_wrong"] == '' or (self.settings["min_wrong"] != '' and possible_q.answered and possible_q.times_wrong >= self.settings["min_wrong"]))
+							if not add: continue
 						self.possible_pool.append(possible_q)
 
 
 	def update_flagged_questions(self):
+		print(self.flagged_questions)
 		conn = sqlite3.connect('db.db')
 		with conn:
 			c = conn.cursor()
@@ -361,11 +366,18 @@ class Question():
 
 	def set_attribs_based_on_answered(self, answered_questions):
 		self.answered = False
+		self.times_right = 0
+		self.times_wrong = 0
 		for q in answered_questions:
 			if q[3] == self.id and q[4] == self.type:
 				self.answered = True
 				self.answered_right = q[5] == q[6]
-				return
+				if q[5] == q[6]:
+					print("IS RIGHT")
+					self.times_right += 1
+				else:
+					print("IS WRONG")
+					self.times_wrong += 1
 
 
 	def __repr__(self):
