@@ -73,7 +73,7 @@ class GMATTesterModel():
 				answer = d[5],
 				explanation = d[9],
 				difficulty_bin_1 = "0%" if d[10] == "N/A" else d[10],
-				difficulty_bin_2 = "0%" if d[11] == "N/A" else d[11],
+				difficulty_bin_2 = "100%" if d[11] == "N/A" else d[11],
 				image = d[8],
 				type = "DS",
 				sessions = d[12],
@@ -262,7 +262,6 @@ class GMATTesterModel():
 
 	def start_study(self):
 		self.reset()
-		self.answered_questions = []
 		limit_based_on_answered_questions = self.limit_based_on_answered_questions()
 		if limit_based_on_answered_questions:
 			self.already_answered_questions = self.get_answered_questions()
